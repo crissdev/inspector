@@ -2,6 +2,7 @@ import {
   Accordion,
   ActionIcon,
   Alert,
+  Badge,
   Button,
   Checkbox,
   Code,
@@ -83,6 +84,38 @@ export type SkillCatalogLimitField =
   | "skillCatalogMaxSkills"
   | "skillCatalogMaxBytes";
 
+const SectionLabelRow = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+});
+
+const ModifiedBadge = Badge.withProps({
+  size: "xs",
+  variant: "light",
+  color: "blue",
+});
+
+/**
+ * A section header with an optional "Modified" badge — set while any setting
+ * in the section differs from what it was when the dialog opened.
+ */
+function SectionControl({
+  label,
+  modified,
+}: {
+  label: string;
+  modified: boolean;
+}) {
+  return (
+    <Accordion.Control>
+      <SectionLabelRow>
+        {label}
+        {modified && <ModifiedBadge>Modified</ModifiedBadge>}
+      </SectionLabelRow>
+    </Accordion.Control>
+  );
+}
+
 export interface ServerSettingsFormProps {
   settings: InspectorServerSettings;
   /** Transport type — EMA checkbox is hidden for stdio. Defaults to streamable-http. */
@@ -153,6 +186,12 @@ export interface ServerSettingsFormProps {
   onAddRoot: () => void;
   onRemoveRoot: (index: number) => void;
   onRootChange: (index: number, uri: string, name: string) => void;
+  /**
+   * Sections holding a setting changed since the dialog opened; each shows a
+   * "Modified" badge in its header. The dialog saves as you type, so this is
+   * the only place an edit stays visible once its section is collapsed.
+   */
+  modifiedSections?: ServerSettingsSection[];
 }
 
 // Protocol-era options (SEP §7.8). Values are `ServerProtocolEra`; the pinned
@@ -518,7 +557,10 @@ export function ServerSettingsForm({
   onAddRoot,
   onRemoveRoot,
   onRootChange,
+  modifiedSections = [],
 }: ServerSettingsFormProps) {
+  const isModified = (section: ServerSettingsSection) =>
+    modifiedSections.includes(section);
   const oauthCapable = isOAuthCapableServerType(serverType);
   // Under enterprise-managed auth these fields hold the *resource authorization
   // server* credentials (leg 3 — its registered client), not the app/IdP pair
@@ -714,7 +756,7 @@ export function ServerSettingsForm({
       }
     >
       <Accordion.Item value="options">
-        <Accordion.Control>Options</Accordion.Control>
+        <SectionControl label="Options" modified={isModified("options")} />
         <Accordion.Panel>
           <Stack gap="md">
             <Select
@@ -794,7 +836,10 @@ export function ServerSettingsForm({
       </Accordion.Item>
 
       <Accordion.Item value="extensions">
-        <Accordion.Control>Advertised Extensions</Accordion.Control>
+        <SectionControl
+          label="Advertised Extensions"
+          modified={isModified("extensions")}
+        />
         <Accordion.Panel>
           <Stack gap="xs">
             <ExtensionsHint>
@@ -819,7 +864,10 @@ export function ServerSettingsForm({
 
       {isStdio ? (
         <Accordion.Item value="environment">
-          <Accordion.Control>Environment Variables</Accordion.Control>
+          <SectionControl
+            label="Environment Variables"
+            modified={isModified("environment")}
+          />
           <Accordion.Panel>
             <Stack gap="md">
               <Group justify="space-between">
@@ -846,7 +894,10 @@ export function ServerSettingsForm({
       ) : null}
 
       <Accordion.Item value="headers">
-        <Accordion.Control>Custom Headers</Accordion.Control>
+        <SectionControl
+          label="Custom Headers"
+          modified={isModified("headers")}
+        />
         <Accordion.Panel>
           <Stack gap="md">
             <Group justify="space-between">
@@ -873,7 +924,10 @@ export function ServerSettingsForm({
       </Accordion.Item>
 
       <Accordion.Item value="metadata">
-        <Accordion.Control>Request Metadata</Accordion.Control>
+        <SectionControl
+          label="Request Metadata"
+          modified={isModified("metadata")}
+        />
         <Accordion.Panel>
           <Stack gap="md">
             <HintText>
@@ -898,7 +952,7 @@ export function ServerSettingsForm({
       </Accordion.Item>
 
       <Accordion.Item value="timeouts">
-        <Accordion.Control>Timeouts</Accordion.Control>
+        <SectionControl label="Timeouts" modified={isModified("timeouts")} />
         <Accordion.Panel>
           <Group>
             <TimeoutInput
@@ -922,7 +976,7 @@ export function ServerSettingsForm({
       </Accordion.Item>
 
       <Accordion.Item value="skills">
-        <Accordion.Control>Skills</Accordion.Control>
+        <SectionControl label="Skills" modified={isModified("skills")} />
         <Accordion.Panel>
           <Stack gap="xs">
             <SkillCountInput
@@ -948,7 +1002,7 @@ export function ServerSettingsForm({
       </Accordion.Item>
 
       <Accordion.Item value="roots">
-        <Accordion.Control>Roots</Accordion.Control>
+        <SectionControl label="Roots" modified={isModified("roots")} />
         <Accordion.Panel>
           <Stack gap="md">
             <Group justify="space-between">
@@ -973,7 +1027,10 @@ export function ServerSettingsForm({
 
       {oauthCapable ? (
         <Accordion.Item value="oauth">
-          <Accordion.Control>OAuth Settings</Accordion.Control>
+          <SectionControl
+            label="OAuth Settings"
+            modified={isModified("oauth")}
+          />
           <Accordion.Panel>
             <Stack gap="md">
               <Checkbox

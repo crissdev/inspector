@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
+import {
+  Button,
+  CloseButton,
+  Group,
+  Modal,
+  ScrollArea,
+  Text,
+} from "@mantine/core";
+import { RiArrowGoBackLine } from "react-icons/ri";
 import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
   InspectorServerSettings,
@@ -22,6 +30,7 @@ import {
   type ServerSettingsSection,
   type SkillCatalogLimitField,
 } from "../ServerSettingsForm/ServerSettingsForm";
+import { changedSections } from "../ServerSettingsForm/serverSettingsSections";
 
 // The "environment" section only renders for stdio servers and the "oauth"
 // section only for OAuth-capable transports, so each joins the
@@ -59,6 +68,26 @@ const ModalHeaderRow = Group.withProps({
 const CenteredModalTitle = Modal.Title.withProps({
   ta: "center",
   flex: 1,
+});
+
+// Pinned under the scrolling body, above the secret-storage band: the note says
+// why there is no Save, and Reset is the undo that live-saving otherwise lacks.
+const ActionRow = Group.withProps({
+  justify: "space-between",
+  gap: "sm",
+  px: "md",
+  py: "sm",
+});
+
+const SaveNote = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+});
+
+const ResetButton = Button.withProps({
+  variant: "default",
+  size: "xs",
+  leftSection: <RiArrowGoBackLine />,
 });
 
 export interface ServerSettingsModalProps {
@@ -119,6 +148,11 @@ export function ServerSettingsModal({
   const [expandedSections, setExpandedSections] = useState<
     ServerSettingsSection[]
   >(["options"]);
+  // The settings as they were when the dialog opened. Edits save as they are
+  // made, so this snapshot is what Reset returns to and what the section
+  // badges compare against. Seeded once: the parent remounts per open.
+  const [openedWith] = useState(settings);
+  const modifiedSections = changedSections(openedWith, settings);
 
   const allExpanded = expandedSections.length === sections.length;
 
@@ -343,8 +377,18 @@ export function ServerSettingsModal({
             onAddRoot={handleAddRoot}
             onRemoveRoot={handleRemoveRoot}
             onRootChange={handleRootChange}
+            modifiedSections={modifiedSections}
           />
         </Modal.Body>
+        <ActionRow>
+          <SaveNote>Changes save as you edit.</SaveNote>
+          <ResetButton
+            disabled={modifiedSections.length === 0}
+            onClick={() => onSettingsChange(openedWith)}
+          >
+            Reset changes
+          </ResetButton>
+        </ActionRow>
         <SecretStorageFooter info={secretStorage} />
       </Modal.Content>
     </AppModalLg>

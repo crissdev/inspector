@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
@@ -1028,6 +1029,69 @@ describe("ServerSettingsModal", () => {
         />,
       );
       expect(screen.queryByTestId("secret-storage-footer")).toBeNull();
+    });
+  });
+
+  describe("changes since opening (badges and Reset)", () => {
+    // A stateful host standing in for App: settings save as they change, and
+    // the dialog is mounted once per open, so it compares against the first
+    // settings it saw.
+    function Host({
+      onSettingsChange,
+    }: {
+      onSettingsChange?: (s: InspectorServerSettings) => void;
+    }) {
+      const [settings, setSettings] = useState(initialSettings);
+      return (
+        <ServerSettingsModal
+          opened
+          settings={settings}
+          serverType="stdio"
+          isStdio
+          onClose={vi.fn()}
+          onSettingsChange={(next) => {
+            setSettings(next);
+            onSettingsChange?.(next);
+          }}
+        />
+      );
+    }
+
+    it("offers no Reset and no badge before anything changes", () => {
+      renderWithMantine(<Host />);
+      expect(
+        screen.getByRole("button", { name: "Reset changes" }),
+      ).toBeDisabled();
+      expect(screen.queryByText("Modified")).toBeNull();
+      expect(screen.getByText("Changes save as you edit.")).toBeInTheDocument();
+    });
+
+    it("badges the section an edit touched, then Reset restores the opened settings", async () => {
+      const user = userEvent.setup();
+      const onSettingsChange = vi.fn();
+      renderWithMantine(<Host onSettingsChange={onSettingsChange} />);
+
+      await user.click(
+        screen.getByRole("button", { name: /Environment Variables/ }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: /Add Environment Variable/ }),
+      );
+
+      const envHeader = screen.getByRole("button", {
+        name: /Environment Variables/,
+      });
+      expect(envHeader).toHaveTextContent("Modified");
+      expect(
+        screen.getByRole("button", { name: /Custom Headers/ }),
+      ).not.toHaveTextContent("Modified");
+
+      await user.click(screen.getByRole("button", { name: "Reset changes" }));
+      expect(onSettingsChange).toHaveBeenLastCalledWith(initialSettings);
+      expect(screen.queryByText("Modified")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Reset changes" }),
+      ).toBeDisabled();
     });
   });
 });

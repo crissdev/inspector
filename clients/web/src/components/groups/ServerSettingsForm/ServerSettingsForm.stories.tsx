@@ -207,6 +207,15 @@ export const DefaultSettings: Story = {
   },
 };
 
+// Sections edited since the dialog opened carry a "Modified" badge, so a change
+// stays visible after its section is collapsed (settings save as you type).
+export const WithModifiedSections: Story = {
+  args: {
+    settings: defaultSettings,
+    modifiedSections: ["options", "headers"],
+  },
+};
+
 export const WithHeaders: Story = {
   args: {
     expandedSections: ["headers"],
