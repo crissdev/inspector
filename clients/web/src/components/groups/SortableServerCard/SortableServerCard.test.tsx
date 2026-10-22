@@ -4,10 +4,13 @@ import type {
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { SortableServerCard } from "./SortableServerCard";
+import {
+  ServerCardDragPreview,
+  SortableServerCard,
+} from "./SortableServerCard";
 
 // Control the dnd-kit sortable state so both arms of the `isDragging`
-// transform ternaries (zIndex / opacity) are exercised. The real
+// opacity ternary are exercised. The real
 // `useSortable` only reports `isDragging: true` mid-drag, which can't be
 // driven through happy-dom, so we mock it to flip the flag per test.
 const sortableMock = vi.hoisted(() => ({ isDragging: false }));
@@ -56,15 +59,30 @@ describe("SortableServerCard", () => {
     ).toBeInTheDocument();
   });
 
-  it("lifts and fades the card while dragging", () => {
+  it("leaves a faded placeholder behind while dragging", () => {
     sortableMock.isDragging = true;
     renderWithMantine(<SortableServerCard {...baseProps} />);
-    // The drag arm of the transform ternaries (zIndex: 2, opacity: 0.85) is
-    // applied to the positioned wrapper Box around the card.
+    // The card under the pointer is the screen's DragOverlay; the in-list copy
+    // fades to mark where the drop will land.
     const card = screen.getByText("My MCP Server");
     const wrapper = card.closest('[style*="opacity"]');
     expect(wrapper).not.toBeNull();
-    expect(wrapper).toHaveStyle({ opacity: "0.85" });
+    expect(wrapper).toHaveStyle({ opacity: "0.35" });
     sortableMock.isDragging = false;
+  });
+});
+
+describe("ServerCardDragPreview", () => {
+  it("renders the card with an inert, hidden copy of the grip", () => {
+    renderWithMantine(<ServerCardDragPreview {...baseProps} />);
+    expect(screen.getByText("My MCP Server")).toBeInTheDocument();
+    // The real grip (with the drag listeners) stays on the placeholder; this
+    // one is decoration, kept out of the tab order and the accessibility tree.
+    expect(
+      screen.queryByRole("button", { name: "Reorder My MCP Server" }),
+    ).toBeNull();
+    const grip = document.querySelector(".server-drag-handle");
+    expect(grip).toHaveAttribute("aria-hidden", "true");
+    expect(grip).toHaveAttribute("tabindex", "-1");
   });
 });

@@ -10,13 +10,17 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
   useSensors,
+  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -26,7 +30,10 @@ import {
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { ServerCard } from "../../groups/ServerCard/ServerCard";
 import { ServerListControls } from "../../groups/ServerListControls/ServerListControls";
-import { SortableServerCard } from "../../groups/SortableServerCard/SortableServerCard";
+import {
+  ServerCardDragPreview,
+  SortableServerCard,
+} from "../../groups/SortableServerCard/SortableServerCard";
 import {
   buildReorderAnnouncements,
   makeServerDragEndHandler,
@@ -137,12 +144,19 @@ const EmptyState = Text.withProps({
 // without touching the shared token or the variant logic. `alignItems: start`
 // keeps rows top-aligned so a taller card (e.g. one whose action row wrapped)
 // doesn't stretch its shorter row-mates.
-const GRID_SURFACE_STYLES = {
-  root: {
-    "--inspector-surface-card": "var(--inspector-surface-card-server)",
-    alignItems: "start",
-  },
+const SERVER_CARD_SURFACE = {
+  "--inspector-surface-card": "var(--inspector-surface-card-server)",
 } as const;
+
+const GRID_SURFACE_STYLES = {
+  root: { ...SERVER_CARD_SURFACE, alignItems: "start" },
+} as const;
+
+// The drag preview leaves the grid (it is portalled to <body>), so it would lose
+// the grid's server-card surface override; this restates only that — not the
+// grid's `alignItems`, which would shrink the preview to its content width
+// instead of the width dnd-kit measured from the card being dragged.
+const PREVIEW_SURFACE_STYLES = { root: SERVER_CARD_SURFACE } as const;
 
 // Read-only banner shown above the panel when the server list isn't writable.
 const ReadOnlyAlert = Alert.withProps({
@@ -173,6 +187,11 @@ const ServerGrid = SimpleGrid.withProps({
   cols: { base: 1, "1040px": 2, "1560px": 3 },
   spacing: "lg",
   styles: GRID_SURFACE_STYLES,
+});
+
+const DragPreviewSurface = Stack.withProps({
+  gap: 0,
+  styles: PREVIEW_SURFACE_STYLES,
 });
 
 // Same scrollbar treatment as the Protocol/Network/Logging list panels (#1474):
@@ -216,6 +235,10 @@ export function ServerListScreen({
 
   const ids = servers.map((s) => s.id);
 
+  // The server being dragged, which the DragOverlay draws under the pointer.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const draggingServer = servers.find((s) => s.id === draggingId);
+
   // `reorderable` only when a persistence callback is wired AND the list is
   // writable. Without it we render plain `ServerCard`s (no grip, no DndContext)
   // so the screen stays usable as a pure display — the SortableServerCard's
@@ -227,7 +250,10 @@ export function ServerListScreen({
   // announcements object (four closures) are otherwise allocated every render
   // for nothing.
   const handleDragEnd = reorderable
-    ? makeServerDragEndHandler(servers, onReorder)
+    ? (event: DragEndEvent) => {
+        setDraggingId(null);
+        makeServerDragEndHandler(servers, onReorder)(event);
+      }
     : undefined;
   const announcements = reorderable
     ? buildReorderAnnouncements(servers)
@@ -309,12 +335,31 @@ export function ServerListScreen({
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
+                  onDragStart={({ active }) => setDraggingId(String(active.id))}
+                  onDragCancel={() => setDraggingId(null)}
                   onDragEnd={handleDragEnd}
                   accessibility={{ announcements }}
                 >
                   <SortableContext items={ids} strategy={rectSortingStrategy}>
                     {grid}
                   </SortableContext>
+                  {/* The card under the pointer is drawn in an overlay rather
+                      than by moving the in-list card, which the scroll area
+                      clips at its edges. Portalled to <body> because #root
+                      carries a `transform` (App.css), which would otherwise
+                      make it the overlay's fixed-position containing block. */}
+                  {createPortal(
+                    <DragOverlay>
+                      {draggingServer && (
+                        <DragPreviewSurface>
+                          <ServerCardDragPreview
+                            {...cardProps(draggingServer)}
+                          />
+                        </DragPreviewSurface>
+                      )}
+                    </DragOverlay>,
+                    document.body,
+                  )}
                 </DndContext>
               ) : (
                 grid

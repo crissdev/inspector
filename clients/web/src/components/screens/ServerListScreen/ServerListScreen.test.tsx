@@ -88,6 +88,43 @@ describe("ServerListScreen", () => {
       expect(handle).toHaveAttribute("tabindex", "0");
     });
 
+    it("draws the picked-up card in an overlay outside the clipped list", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(<ServerListScreen {...baseProps} />);
+      const handle = screen.getByRole("button", { name: "Reorder Alpha" });
+      handle.focus();
+      // Space picks the card up through the keyboard sensor.
+      await user.keyboard(" ");
+      const copies = await screen.findAllByText("Alpha");
+      expect(copies).toHaveLength(2);
+      // The preview is portalled to <body>, outside the scroll area that used
+      // to clip the dragged card.
+      const outside = copies.filter(
+        (el) => !el.closest(".mantine-ScrollArea-root"),
+      );
+      expect(outside).toHaveLength(1);
+
+      // Escape cancels the drag: the overlay empties, nothing is reordered.
+      await user.keyboard("{Escape}");
+      expect(screen.getAllByText("Alpha")).toHaveLength(1);
+      expect(baseProps.onReorder).not.toHaveBeenCalled();
+    });
+
+    it("clears the overlay and persists the order when the drag ends", async () => {
+      const user = userEvent.setup();
+      const onReorder = vi.fn();
+      renderWithMantine(
+        <ServerListScreen {...baseProps} onReorder={onReorder} />,
+      );
+      screen.getByRole("button", { name: "Reorder Alpha" }).focus();
+      await user.keyboard(" ");
+      expect(await screen.findAllByText("Alpha")).toHaveLength(2);
+      // Dropping in place (no move) ends the drag without a reorder.
+      await user.keyboard(" ");
+      expect(screen.getAllByText("Alpha")).toHaveLength(1);
+      expect(onReorder).not.toHaveBeenCalled();
+    });
+
     it("omits drag handles when onReorder is not provided", () => {
       renderWithMantine(
         <ServerListScreen {...baseProps} onReorder={undefined} />,

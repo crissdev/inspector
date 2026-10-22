@@ -1,4 +1,4 @@
-import { ActionIcon, Box } from "@mantine/core";
+import { ActionIcon, Box, Paper } from "@mantine/core";
 import { RiDraggable } from "react-icons/ri";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -56,16 +56,45 @@ export function SortableServerCard(props: SortableServerCardProps) {
       // dnd-kit positions the item with a transform that changes every
       // animation frame during a drag — the one place an inline style is
       // unavoidable, since the value can't be a static theme variant or prop.
-      // While dragging we lift the item above its siblings and fade it
-      // slightly so the drop target underneath stays legible.
+      // While dragging, the card that follows the pointer is the screen's
+      // `DragOverlay` (`ServerCardDragPreview`), so this in-list copy stays
+      // behind as a faded placeholder marking where the drop will land.
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        zIndex: isDragging ? 2 : undefined,
-        opacity: isDragging ? 0.85 : undefined,
+        opacity: isDragging ? 0.35 : undefined,
       }}
     >
       <ServerCard {...props} dragHandle={grip} />
     </Box>
+  );
+}
+
+// Lifts the preview off the page so it reads as picked up.
+const LiftedSurface = Paper.withProps({
+  shadow: "xl",
+  radius: "md",
+  bg: "transparent",
+});
+
+/**
+ * The card drawn under the pointer while a server is dragged — the content of
+ * the screen's `DragOverlay`. It renders the same `ServerCard` with an inert
+ * copy of the grip (the real one stays on the in-list placeholder, which keeps
+ * the drag's listeners), so the picked-up card looks identical to the one left
+ * behind.
+ */
+export function ServerCardDragPreview(props: SortableServerCardProps) {
+  return (
+    <LiftedSurface>
+      <ServerCard
+        {...props}
+        dragHandle={
+          <DragHandle aria-hidden tabIndex={-1}>
+            <RiDraggable size={16} />
+          </DragHandle>
+        }
+      />
+    </LiftedSurface>
   );
 }
