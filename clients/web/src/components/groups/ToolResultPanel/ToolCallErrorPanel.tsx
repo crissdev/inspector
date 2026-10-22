@@ -1,12 +1,4 @@
-import {
-  Alert,
-  CloseButton,
-  Code,
-  Group,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Alert, Code, Stack, Text } from "@mantine/core";
 import { classifyToolCallError } from "./toolResultUtils";
 
 export interface ToolCallErrorPanelProps {
@@ -21,34 +13,12 @@ export interface ToolCallErrorPanelProps {
    * the heading/hint are chosen from the message, not the code alone.
    */
   errorCode?: number;
-  /** Dismiss the error and return to the input form (mirrors ToolResultPanel). */
-  onClear: () => void;
 }
-
-// Mirrors ToolResultPanel's column so an error dismisses the same way a result
-// does: header with the close X pins, the alert fills and scrolls below it.
-const PanelStack = Stack.withProps({
-  gap: "md",
-  miw: 0,
-  mih: 0,
-  flex: 1,
-});
-
-const HeaderRow = Group.withProps({
-  gap: "xs",
-  wrap: "nowrap",
-  flex: "0 0 auto",
-});
 
 const HintText = Text.withProps({
   size: "sm",
   c: "var(--inspector-text-secondary)",
 });
-
-// h3 (not h4), size h4: request modals open over the Tools screen with an `h2`
-// `Modal.Title`, so an `h4` here would skip a level (axe `heading-order`);
-// `size="h4"` keeps the visual size.
-const PanelTitle = Title.withProps({ order: 3, size: "h4" });
 
 const ErrorAlert = Alert.withProps({ color: "red", variant: "light" });
 
@@ -67,35 +37,27 @@ const ERROR_TITLES: Record<string, string> = {
 export function ToolCallErrorPanel({
   error,
   errorCode,
-  onClear,
 }: ToolCallErrorPanelProps) {
   const kind = classifyToolCallError(errorCode, error);
   return (
-    <PanelStack>
-      <HeaderRow>
-        <CloseButton aria-label="Close error" onClick={onClear} />
-        <PanelTitle>Tool Call Failed</PanelTitle>
-      </HeaderRow>
-      <ErrorAlert title={ERROR_TITLES[kind]}>
-        <Stack gap="xs">
-          <Text size="sm">{error}</Text>
-          {kind === "unknown-tool" && (
-            <HintText>
-              The server rejected this call with <Code>-32602</Code> (Invalid
-              params) — it does not recognize this tool. It may have been
-              excluded for an invalid <Code>x-mcp-header</Code> annotation or
-              removed since the list was last fetched. Try refreshing the tools
-              list.
-            </HintText>
-          )}
-          {kind === "invalid-params" && (
-            <HintText>
-              The server rejected this call with <Code>-32602</Code> (Invalid
-              params). Check the argument values against the tool&apos;s schema.
-            </HintText>
-          )}
-        </Stack>
-      </ErrorAlert>
-    </PanelStack>
+    <ErrorAlert title={ERROR_TITLES[kind]}>
+      <Stack gap="xs">
+        <Text size="sm">{error}</Text>
+        {kind === "unknown-tool" && (
+          <HintText>
+            The server rejected this call with <Code>-32602</Code> (Invalid
+            params) — it does not recognize this tool. It may have been excluded
+            for an invalid <Code>x-mcp-header</Code> annotation or removed since
+            the list was last fetched. Try refreshing the tools list.
+          </HintText>
+        )}
+        {kind === "invalid-params" && (
+          <HintText>
+            The server rejected this call with <Code>-32602</Code> (Invalid
+            params). Check the argument values against the tool&apos;s schema.
+          </HintText>
+        )}
+      </Stack>
+    </ErrorAlert>
   );
 }

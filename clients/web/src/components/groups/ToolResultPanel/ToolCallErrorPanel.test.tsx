@@ -1,15 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
-import userEvent from "@testing-library/user-event";
+import { describe, it, expect } from "vitest";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { ToolCallErrorPanel } from "./ToolCallErrorPanel";
 import { classifyToolCallError } from "./toolResultUtils";
 
 describe("ToolCallErrorPanel", () => {
   it("renders a generic thrown error with the plain title and message", () => {
-    renderWithMantine(
-      <ToolCallErrorPanel error="Internal error" onClear={vi.fn()} />,
-    );
-    expect(screen.getByText("Tool Call Failed")).toBeInTheDocument();
+    renderWithMantine(<ToolCallErrorPanel error="Internal error" />);
     expect(screen.getByText("Tool Error")).toBeInTheDocument();
     expect(screen.getByText("Internal error")).toBeInTheDocument();
     // No -32602 hints for a generic error.
@@ -22,7 +18,6 @@ describe("ToolCallErrorPanel", () => {
       <ToolCallErrorPanel
         error="MCP error -32602: Tool echo not found"
         errorCode={-32602}
-        onClear={vi.fn()}
       />,
     );
     expect(screen.getByText("Unknown Tool")).toBeInTheDocument();
@@ -38,7 +33,6 @@ describe("ToolCallErrorPanel", () => {
       <ToolCallErrorPanel
         error="MCP error -32602: Invalid params: 'count' must be a number"
         errorCode={-32602}
-        onClear={vi.fn()}
       />,
     );
     expect(screen.getByText("Invalid Parameters")).toBeInTheDocument();
@@ -46,12 +40,12 @@ describe("ToolCallErrorPanel", () => {
     expect(screen.queryByText(/does not recognize this tool/)).toBeNull();
   });
 
-  it("invokes onClear when the close button is clicked", async () => {
-    const user = userEvent.setup();
-    const onClear = vi.fn();
-    renderWithMantine(<ToolCallErrorPanel error="boom" onClear={onClear} />);
-    await user.click(screen.getByRole("button", { name: "Close error" }));
-    expect(onClear).toHaveBeenCalledTimes(1);
+  it("renders the alert alone, with no heading or close button", () => {
+    // The Tools response pane owns the heading and status badge.
+    renderWithMantine(<ToolCallErrorPanel error="boom" />);
+    expect(screen.queryByText("Tool Call Failed")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close error" })).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("boom");
   });
 
   it("classifyToolCallError narrows -32602 by message", () => {

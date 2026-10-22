@@ -4,9 +4,9 @@ import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ElicitRequest, Tool } from "@modelcontextprotocol/client";
 import { Modal } from "@mantine/core";
-import { fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { ToolsScreen } from "./ToolsScreen";
-import type { ToolCallState, ToolsUiState } from "./ToolsScreen";
+import type { ToolCallRecord, ToolsUiState } from "./ToolsScreen";
 import { EMPTY_TOOLS_UI } from "../screenUiState";
 import { SamplingRequestPanel } from "../../groups/SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../../groups/ElicitationFormPanel/ElicitationFormPanel";
@@ -36,7 +36,6 @@ const meta: Meta<typeof ToolsScreen> = {
     onRefreshList: fn(),
     onCallTool: fn(),
     onCancelCall: fn(),
-    onClearResult: fn(),
   },
   // Wrap in a stateful host so selection/form (now parent-owned) update on click.
   render: (args) => <StatefulToolsScreen {...args} />,
@@ -73,27 +72,64 @@ const sampleTools: Tool[] = [
   { name: "batch_process", inputSchema: { type: "object" } },
 ];
 
-const resultState: ToolCallState = {
-  status: "ok",
-  result: {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          {
-            id: 42,
-            title: "New Record",
-            count: 5,
-            enabled: true,
-            createdAt: "2026-03-17T12:00:00Z",
-          },
-          null,
-          2,
-        ),
-      },
-    ],
-  },
-};
+// A fixed clock so the history rows read the same on every render.
+const AT = new Date(2026, 2, 17, 12, 0, 0).getTime();
+
+function createRecordCall(
+  id: string,
+  args: Record<string, unknown>,
+  overrides: Partial<ToolCallRecord> = {},
+): ToolCallRecord {
+  return {
+    id,
+    toolName: "create_record",
+    args,
+    runAsTask: false,
+    startedAt: AT,
+    durationMs: 42,
+    status: "ok",
+    result: {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            { id: 42, ...args, createdAt: "2026-03-17T12:00:00Z" },
+            null,
+            2,
+          ),
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+const latestCall = createRecordCall("call-3", {
+  title: "New Record",
+  count: 5,
+  enabled: true,
+});
+
+const callHistory: ToolCallRecord[] = [
+  latestCall,
+  createRecordCall(
+    "call-2",
+    { title: "Draft", count: 1 },
+    { startedAt: AT - 65_000, durationMs: 1_250 },
+  ),
+  createRecordCall(
+    "call-1",
+    { title: "" },
+    {
+      startedAt: AT - 180_000,
+      durationMs: 8,
+      status: "error",
+      result: undefined,
+      error: "MCP error -32602: Invalid params: title must not be empty",
+      errorCode: -32602,
+    },
+  ),
+];
 
 async function selectToolByLabel(canvasElement: HTMLElement, label: string) {
   const canvas = within(canvasElement);
@@ -115,13 +151,39 @@ export const ToolSelected: Story = {
   },
 };
 
+// Request and response side by side: selecting a tool that was called before
+// reopens it on its last call's arguments, beside that call's response.
 export const WithResult: Story = {
   args: {
     tools: sampleTools,
-    callState: resultState,
+    history: [latestCall],
   },
   play: async ({ canvasElement }) => {
     await selectToolByLabel(canvasElement, "Create Record");
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getByRole("button", { name: "Execute Tool" }),
+    ).toBeInTheDocument();
+    await expect(canvas.getByRole("textbox", { name: /title/i })).toHaveValue(
+      "New Record",
+    );
+  },
+};
+
+// Picking an older call shows its response and restores its arguments.
+export const WithHistory: Story = {
+  args: {
+    tools: sampleTools,
+    history: callHistory,
+  },
+  play: async ({ canvasElement }) => {
+    await selectToolByLabel(canvasElement, "Create Record");
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("History (3)")).toBeInTheDocument();
+    await userEvent.click(canvas.getByText('title: "Draft", count: 1'));
+    await expect(canvas.getByRole("textbox", { name: /title/i })).toHaveValue(
+      "Draft",
+    );
   },
 };
 
@@ -169,18 +231,24 @@ export const LongToolName: Story = {
 export const WithError: Story = {
   args: {
     tools: sampleTools,
-    callState: {
-      status: "error",
-      result: {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: 'Error executing tool "create_record": ECONNREFUSED 127.0.0.1:5432 — could not connect to the database server. The server may not be running or may be unreachable at the configured host and port. Please verify that PostgreSQL is started, the connection string is correct, and any firewall rules allow traffic on port 5432. If this is a transient issue, retrying after a short delay may resolve it.',
+    history: [
+      createRecordCall(
+        "call-1",
+        { title: "New Record" },
+        {
+          status: "error",
+          result: {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: 'Error executing tool "create_record": ECONNREFUSED 127.0.0.1:5432 — could not connect to the database server. The server may not be running or may be unreachable at the configured host and port. Please verify that PostgreSQL is started, the connection string is correct, and any firewall rules allow traffic on port 5432. If this is a transient issue, retrying after a short delay may resolve it.',
+              },
+            ],
           },
-        ],
-      },
-    },
+        },
+      ),
+    ],
   },
   play: async ({ canvasElement }) => {
     await selectToolByLabel(canvasElement, "Create Record");
@@ -209,7 +277,7 @@ const elicitFormRequest = {
 export const WithSamplingModal: Story = {
   args: {
     tools: sampleTools,
-    callState: { status: "pending" },
+    callState: { status: "pending", toolName: "create_record" },
   },
   play: async ({ canvasElement }) => {
     await selectToolByLabel(canvasElement, "Create Record");
@@ -251,7 +319,7 @@ export const WithSamplingModal: Story = {
 export const WithElicitationModal: Story = {
   args: {
     tools: sampleTools,
-    callState: { status: "pending" },
+    callState: { status: "pending", toolName: "create_record" },
   },
   play: async ({ canvasElement }) => {
     await selectToolByLabel(canvasElement, "Create Record");
@@ -277,7 +345,7 @@ export const WithElicitationModal: Story = {
 export const WithPendingRequests: Story = {
   args: {
     tools: sampleTools,
-    callState: { status: "pending" },
+    callState: { status: "pending", toolName: "create_record" },
   },
   play: async ({ canvasElement }) => {
     await selectToolByLabel(canvasElement, "Create Record");

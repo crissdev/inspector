@@ -1,12 +1,4 @@
-import {
-  Alert,
-  CloseButton,
-  Group,
-  Paper,
-  ScrollArea,
-  Stack,
-  Title,
-} from "@mantine/core";
+import { Alert, Paper, ScrollArea, Stack, Title } from "@mantine/core";
 import type {
   CallToolResult,
   ReadResourceResult,
@@ -18,12 +10,6 @@ import { resultHasResourceLinks } from "./toolResultUtils";
 
 export interface ToolResultPanelProps {
   result: CallToolResult;
-  /**
-   * Dismiss the result and return to the input form (#1661). Mirrors the
-   * Prompts screen: the result replaces the form while present, and the
-   * top-left X flips back to the form so the tool can be re-run.
-   */
-  onClear: () => void;
   /**
    * Read-on-demand handler so `resource_link` blocks in the result can fetch
    * and inline their contents.
@@ -61,26 +47,14 @@ function segmentContent(content: ContentBlock[]): ResultSegment[] {
   return segments;
 }
 
-// Outer column fills the (full-height) result card: the header pins
-// (`flex: 0 0 auto`) and the body below fills the rest. `mih: 0` lets the flex
-// children shrink below their content's intrinsic height.
+// Outer column fills the space its host gives it (the Tools response pane, which
+// owns the heading, status and Re-run). `mih: 0` lets the flex children shrink
+// below their content's intrinsic height.
 const PanelStack = Stack.withProps({
   gap: "md",
   miw: 0,
   mih: 0,
   flex: 1,
-});
-
-const HeaderRow = Group.withProps({
-  justify: "space-between",
-  flex: "0 0 auto",
-});
-
-// Close button + title, mirroring PromptMessagesDisplay so the two result
-// panels dismiss the same way.
-const HeaderLeft = Group.withProps({
-  gap: "xs",
-  wrap: "nowrap",
 });
 
 // Body scroll region for non-resource-link results: fills the card and scrolls
@@ -151,7 +125,7 @@ const ResourceLinksInner = Stack.withProps({
 });
 
 const ResourceLinksHeader = Title.withProps({
-  // The panel "Results" title is h3 (size h4); this sub-box heading is h4 so the
+  // The host's "Response" title is h3 (size h4); this sub-box heading is h4 so the
   // heading order doesn't skip a level (axe `heading-order`).
   order: 4,
   size: "h5",
@@ -168,14 +142,6 @@ const ResourceLinksScroll = ScrollArea.withProps({
 
 const ResourceLinksStack = Stack.withProps({
   gap: "sm",
-});
-
-// h3 (not h4), size h4: request modals open over the Tools screen with an `h2`
-// `Modal.Title`, so an `h4` here would skip a level (axe `heading-order`);
-// `size="h4"` preserves the visual size.
-const ResultsTitle = Title.withProps({
-  order: 3,
-  size: "h4",
 });
 
 const ErrorAlert = Alert.withProps({
@@ -225,7 +191,6 @@ function ResourceLinksGroup({
 
 export function ToolResultPanel({
   result,
-  onClear,
   onReadResource,
 }: ToolResultPanelProps) {
   const segments =
@@ -276,12 +241,6 @@ export function ToolResultPanel({
 
   return (
     <PanelStack>
-      <HeaderRow>
-        <HeaderLeft>
-          <CloseButton aria-label="Close results" onClick={onClear} />
-          <ResultsTitle>Results</ResultsTitle>
-        </HeaderLeft>
-      </HeaderRow>
       {result.isError ? (
         <ResultScroll>
           <ResultStack>

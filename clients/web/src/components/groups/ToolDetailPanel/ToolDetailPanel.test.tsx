@@ -246,6 +246,94 @@ describe("ToolDetailPanel", () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
+  describe("Execute shortcut", () => {
+    it("executes on mod+Enter, even from inside an argument field", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={simpleTool}
+          formValues={{ message: "hi" }}
+          onExecute={onExecute}
+        />,
+      );
+      await user.click(screen.getByRole("textbox", { name: /message/i }));
+      await user.keyboard("{Control>}{Enter}{/Control}");
+      expect(onExecute).toHaveBeenCalledWith(false);
+      await user.keyboard("{Meta>}{Enter}{/Meta}");
+      expect(onExecute).toHaveBeenCalledTimes(2);
+    });
+
+    it("passes the effective task routing, as the button does", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={{
+            ...simpleTool,
+            execution: { taskSupport: "required" },
+          }}
+          formValues={{ message: "hi" }}
+          serverSupportsTaskToolCalls
+          onExecute={onExecute}
+        />,
+      );
+      await user.keyboard("{Control>}{Enter}{/Control}");
+      expect(onExecute).toHaveBeenCalledWith(true);
+    });
+
+    it("does nothing while Execute is disabled", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={simpleTool}
+          // `message` is required and empty, so Execute is disabled.
+          formValues={{}}
+          onExecute={onExecute}
+        />,
+      );
+      await user.keyboard("{Control>}{Enter}{/Control}");
+      expect(onExecute).not.toHaveBeenCalled();
+    });
+
+    it("ignores a plain Enter", async () => {
+      const user = userEvent.setup();
+      const onExecute = vi.fn();
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={simpleTool}
+          formValues={{ message: "hi" }}
+          onExecute={onExecute}
+        />,
+      );
+      await user.click(screen.getByRole("textbox", { name: /message/i }));
+      await user.keyboard("{Enter}");
+      expect(onExecute).not.toHaveBeenCalled();
+    });
+
+    it("shows the hint without changing the button's accessible name", () => {
+      renderWithMantine(
+        <ToolDetailPanel
+          {...baseProps}
+          tool={simpleTool}
+          formValues={{ message: "hi" }}
+          shortcutLabel="⌘ ↵"
+        />,
+      );
+      const button = screen.getByRole("button", { name: "Execute Tool" });
+      expect(button).toHaveTextContent("⌘ ↵");
+      expect(button).toHaveAttribute(
+        "aria-keyshortcuts",
+        "Control+Enter Meta+Enter",
+      );
+    });
+  });
+
   // #2171: the panel opts its form into tool-argument type enforcement, so a
   // raw-JSON draft the client would retype is refused here rather than sent as
   // something other than what the editor showed.

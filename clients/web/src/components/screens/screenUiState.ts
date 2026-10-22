@@ -21,6 +21,7 @@ export const EMPTY_TOOLS_UI: ToolsUiState = {
   formValues: {},
   search: "",
   runAsTask: false,
+  viewedCallId: undefined,
 };
 
 export const EMPTY_PROMPTS_UI: PromptsUiState = {

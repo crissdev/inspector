@@ -24,14 +24,12 @@ const emptyResult: CallToolResult = { content: [] };
 
 describe("ToolResultPanel", () => {
   it("renders text content blocks", () => {
-    renderWithMantine(<ToolResultPanel result={okResult} onClear={() => {}} />);
+    renderWithMantine(<ToolResultPanel result={okResult} />);
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
   it("renders an error alert when isError is true", () => {
-    renderWithMantine(
-      <ToolResultPanel result={errorResult} onClear={() => {}} />,
-    );
+    renderWithMantine(<ToolResultPanel result={errorResult} />);
     expect(screen.getByText("Tool Error")).toBeInTheDocument();
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
@@ -40,9 +38,7 @@ describe("ToolResultPanel", () => {
   // read as "the call completed and returned nothing" — never as the pre-run
   // "No results yet" placeholder, which denies a call the user watched succeed.
   it("names the outcome when a completed result has no content", () => {
-    renderWithMantine(
-      <ToolResultPanel result={emptyResult} onClear={() => {}} />,
-    );
+    renderWithMantine(<ToolResultPanel result={emptyResult} />);
     expect(screen.getByText("Empty result")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -64,11 +60,7 @@ describe("ToolResultPanel", () => {
       ],
     };
     renderWithMantine(
-      <ToolResultPanel
-        result={result}
-        onClear={() => {}}
-        onReadResource={onReadResource}
-      />,
+      <ToolResultPanel result={result} onReadResource={onReadResource} />,
     );
     expect(screen.getByText("ok")).toBeInTheDocument();
     // The link sits inside a grouped, labeled box.
@@ -93,7 +85,7 @@ describe("ToolResultPanel", () => {
         { type: "resource_link", uri: "demo://r/3", name: "Three" },
       ],
     };
-    renderWithMantine(<ToolResultPanel result={result} onClear={() => {}} />);
+    renderWithMantine(<ToolResultPanel result={result} />);
     // One shared "Resource Links" heading for the whole run of links.
     expect(
       screen.getAllByRole("heading", { name: "Resource Links" }),
@@ -111,7 +103,7 @@ describe("ToolResultPanel", () => {
         { type: "resource_link", uri: "demo://r/2", name: "Two" },
       ],
     };
-    renderWithMantine(<ToolResultPanel result={result} onClear={() => {}} />);
+    renderWithMantine(<ToolResultPanel result={result} />);
     // The text block between the two links splits them into two boxes.
     expect(
       screen.getAllByRole("heading", { name: "Resource Links" }),
@@ -133,7 +125,6 @@ describe("ToolResultPanel", () => {
       renderWithMantine(
         <ToolResultPanel
           result={{ content: [{ type: "text", text: longJson }] }}
-          onClear={() => {}}
         />,
       );
       expect(getAceEditor().getOption("maxLines")).toBe(Infinity);
@@ -148,7 +139,6 @@ describe("ToolResultPanel", () => {
               { type: "resource_link", uri: "demo://r/1", name: "One" },
             ],
           }}
-          onClear={() => {}}
         />,
       );
       expect(getAceEditor().getOption("maxLines")).toBe(Infinity);
@@ -162,7 +152,6 @@ describe("ToolResultPanel", () => {
       renderWithMantine(
         <ToolResultPanel
           result={{ ...okResult, structuredContent: structured }}
-          onClear={() => {}}
         />,
       );
       expect(screen.getByText("ok")).toBeInTheDocument();
@@ -172,9 +161,7 @@ describe("ToolResultPanel", () => {
     });
 
     it("omits the section when the result has no structuredContent", () => {
-      renderWithMantine(
-        <ToolResultPanel result={okResult} onClear={() => {}} />,
-      );
+      renderWithMantine(<ToolResultPanel result={okResult} />);
       expect(
         screen.queryByRole("heading", { name: "Structured Output" }),
       ).not.toBeInTheDocument();
@@ -184,7 +171,6 @@ describe("ToolResultPanel", () => {
       renderWithMantine(
         <ToolResultPanel
           result={{ content: [], structuredContent: structured }}
-          onClear={() => {}}
         />,
       );
       expect(screen.queryByText("Empty result")).not.toBeInTheDocument();
@@ -197,7 +183,6 @@ describe("ToolResultPanel", () => {
       renderWithMantine(
         <ToolResultPanel
           result={{ ...errorResult, structuredContent: structured }}
-          onClear={() => {}}
         />,
       );
       expect(screen.getByText("Tool Error")).toBeInTheDocument();
@@ -215,7 +200,6 @@ describe("ToolResultPanel", () => {
             ],
             structuredContent: structured,
           }}
-          onClear={() => {}}
         />,
       );
       expect(
@@ -227,12 +211,12 @@ describe("ToolResultPanel", () => {
     });
   });
 
-  it("invokes onClear when the close button is clicked", async () => {
-    const user = userEvent.setup();
-    const onClear = vi.fn();
-    renderWithMantine(<ToolResultPanel result={okResult} onClear={onClear} />);
-    await user.click(screen.getByRole("button", { name: "Close results" }));
-    expect(onClear).toHaveBeenCalledTimes(1);
+  it("renders no heading or close button of its own", () => {
+    // The Tools response pane owns the heading, status and Re-run; a second
+    // "Results" title or an X here would duplicate it.
+    renderWithMantine(<ToolResultPanel result={okResult} />);
+    expect(screen.queryByRole("heading", { name: "Results" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close results" })).toBeNull();
   });
 
   describe("resultHasResourceLinks", () => {

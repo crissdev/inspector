@@ -46,6 +46,7 @@ import type {
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
 import type { TaskProgress } from "../../groups/TaskCard/TaskCard";
 import type {
+  ToolCallRecord,
   ToolCallState,
   ToolsUiState,
 } from "../../screens/ToolsScreen/ToolsScreen";
@@ -224,6 +225,8 @@ export interface ToolsPanelProps {
   toolsUi: ToolsUiState;
   /** Panel-level "operation in flight" state. */
   toolCallState?: ToolCallState;
+  /** Completed tool calls, newest first, for the response pane's history. */
+  toolCallHistory?: ToolCallRecord[];
   /** Pagination controls for the Tools list (#1721). */
   toolsPagination: ListPaginationControlsProps;
   /**
@@ -239,7 +242,6 @@ export interface ToolsPanelProps {
     runAsTask?: boolean,
   ) => void;
   onCancelToolCall?: () => void;
-  onClearToolResult?: () => void;
   onRefreshTools: () => void;
   /**
    * Read-on-demand handler for `resource_link` blocks in a tool result.

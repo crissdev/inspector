@@ -1,6 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { Card, Flex } from "@mantine/core";
-import { fn } from "storybook/test";
 import { ToolCallErrorPanel } from "./ToolCallErrorPanel";
 
 // Frame the panel in the same result card the Tools screen uses, so the story
@@ -18,9 +17,6 @@ const inCardDecorators: Decorator[] = [
 const meta: Meta<typeof ToolCallErrorPanel> = {
   title: "Groups/ToolCallErrorPanel",
   component: ToolCallErrorPanel,
-  args: {
-    onClear: fn(),
-  },
   decorators: inCardDecorators,
 };
 

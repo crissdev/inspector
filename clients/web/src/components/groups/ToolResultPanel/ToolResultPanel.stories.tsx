@@ -1,15 +1,12 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { Card, Flex } from "@mantine/core";
-import { expect, fn, waitFor } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 import { ToolResultPanel } from "./ToolResultPanel";
 
 const meta: Meta<typeof ToolResultPanel> = {
   title: "Groups/ToolResultPanel",
   component: ToolResultPanel,
-  args: {
-    onClear: fn(),
-  },
 };
 
 export default meta;

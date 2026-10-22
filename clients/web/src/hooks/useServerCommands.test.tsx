@@ -358,8 +358,22 @@ describe("useResultPanels", () => {
     });
     expect(h.panels().toolCallState).toEqual({ status: "pending" });
 
+    await act(async () =>
+      h.panels().recordToolCall({
+        toolName: "echo",
+        args: {},
+        runAsTask: false,
+        startedAt: 0,
+        durationMs: 1,
+        status: "ok",
+      }),
+    );
+    expect(h.panels().toolCallHistory).toHaveLength(1);
+
     await act(async () => h.panels().clearResultPanels());
     expect(h.panels().toolCallState).toBeUndefined();
+    // History belongs to the session, so a session reset drops it too.
+    expect(h.panels().toolCallHistory).toEqual([]);
     expect(h.panels().getPromptState).toBeUndefined();
     expect(h.panels().readResourceState).toBeUndefined();
   });
@@ -443,7 +457,36 @@ describe("onCallTool", () => {
       status: "ok",
       result: { ok: 1 },
       error: undefined,
+      toolName: "echo",
     });
+    expect(h.panels().toolCallHistory).toEqual([
+      {
+        id: "call-1",
+        toolName: "echo",
+        args: { a: 1 },
+        runAsTask: false,
+        startedAt: expect.any(Number),
+        durationMs: expect.any(Number),
+        status: "ok",
+        result: { ok: 1 },
+        error: undefined,
+      },
+    ]);
+  });
+
+  it("records calls newest first and caps the history", async () => {
+    const c = client({
+      callTool: vi.fn().mockResolvedValue({ success: true, result: {} }),
+    });
+    const h = harness({ client: c, tools: [tool("echo")] });
+    for (let n = 1; n <= 51; n++) {
+      await act(async () => h.api().onCallTool("echo", { n }));
+    }
+    const history = h.panels().toolCallHistory;
+    expect(history).toHaveLength(50);
+    expect(history[0]).toMatchObject({ id: "call-51", args: { n: 51 } });
+    // The 51st call pushed the first one out; the oldest kept is the second.
+    expect(history.at(-1)).toMatchObject({ id: "call-2", args: { n: 2 } });
   });
 
   it("reports an unsuccessful invocation as an error panel", async () => {
@@ -457,6 +500,11 @@ describe("onCallTool", () => {
     expect(h.panels().toolCallState).toEqual({
       status: "error",
       result: undefined,
+      error: "boom",
+      toolName: "echo",
+    });
+    expect(h.panels().toolCallHistory[0]).toMatchObject({
+      status: "error",
       error: "boom",
     });
   });
@@ -480,6 +528,8 @@ describe("onCallTool", () => {
       { ttl: 42 },
     );
     expect(c.callTool).not.toHaveBeenCalled();
+    // Recorded with the routing it was sent with, so a re-run matches it.
+    expect(h.panels().toolCallHistory[0]).toMatchObject({ runAsTask: true });
   });
 
   it("task-routes a tool whose execution requires it", async () => {
@@ -506,6 +556,8 @@ describe("onCallTool", () => {
     await act(async () => h.api().onCallTool("echo", {}, true));
     expect(c.callTool).toHaveBeenCalled();
     expect(c.callToolStream).not.toHaveBeenCalled();
+    // Asked for a task but not routed as one: the record says what was sent.
+    expect(h.panels().toolCallHistory[0]).toMatchObject({ runAsTask: false });
   });
 
   it("falls back to the default TTL when the server carries none", async () => {
@@ -535,6 +587,8 @@ describe("onCallTool", () => {
       { serverId: "a", source: "tool" },
     );
     expect(h.panels().toolCallState).toBeUndefined();
+    // The call was handed to recovery, not completed, so nothing is recorded.
+    expect(h.panels().toolCallHistory).toEqual([]);
   });
 
   it("skips the recovery when no server is active", async () => {
@@ -560,6 +614,9 @@ describe("onCallTool", () => {
     expect(notificationsMock.show).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Tool call cancelled" }),
     );
+    expect(h.panels().toolCallHistory[0]).toMatchObject({
+      status: "cancelled",
+    });
   });
 
   it("surfaces a URL elicitation loop as its own error", async () => {
@@ -579,6 +636,10 @@ describe("onCallTool", () => {
     expect(notificationsMock.show).toHaveBeenCalledWith(
       expect.objectContaining({ title: "URL elicitation loop" }),
     );
+    expect(h.panels().toolCallHistory[0]).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("looped"),
+    });
   });
 
   it("surfaces a URLElicitationRequired carrying no elicitations", async () => {
@@ -590,6 +651,7 @@ describe("onCallTool", () => {
     const h = harness({ client: c, tools: [tool("echo")] });
     await act(async () => h.api().onCallTool("echo", {}));
     expect(h.panels().toolCallState).toMatchObject({ status: "error" });
+    expect(h.panels().toolCallHistory[0]).toMatchObject({ status: "error" });
     const shown = notificationsMock.show.mock.calls.at(-1)?.[0] as {
       title: string;
       message: ReactElement<{ onViewDetails: () => void }>;
@@ -612,18 +674,17 @@ describe("onCallTool", () => {
       status: "error",
       error: "bad",
       errorCode: -32603,
+      toolName: "echo",
+    });
+    expect(h.panels().toolCallHistory[0]).toMatchObject({
+      status: "error",
+      error: "bad",
+      errorCode: -32603,
     });
   });
 });
 
 describe("the tools panel writers", () => {
-  it("onClearToolResult drops the result", async () => {
-    const h = harness();
-    await act(async () => h.panels().setToolCallState({ status: "pending" }));
-    await act(async () => h.api().onClearToolResult());
-    expect(h.panels().toolCallState).toBeUndefined();
-  });
-
   it("onToolsUiChange drops the result when the selection changes", async () => {
     const h = harness({ selectedToolKey: "a" });
     await act(async () => h.panels().setToolCallState({ status: "pending" }));

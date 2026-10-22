@@ -12,11 +12,10 @@ import {
   ToolDetailPanel,
   type ToolProgress,
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
-import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
-import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPanel";
-import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
+import { ToolResponsePanel } from "../../groups/ToolResponsePanel/ToolResponsePanel";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import { findToolByRowKey } from "../../../utils/toolUtils";
+import { executeShortcutLabel } from "../../../utils/toolCallHistory";
 
 export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
@@ -30,6 +29,32 @@ export interface ToolCallState {
    */
   errorCode?: number;
   progress?: ToolProgress;
+  /**
+   * The tool the call targets, set by every `onCallTool` write. Absent only on
+   * an error written from outside the call — a failed step-up auth recovery —
+   * which has no history record and is shown above the response instead.
+   */
+  toolName?: string;
+}
+
+/**
+ * One completed `tools/call`, kept so the response pane can show past calls
+ * beside the request form and re-send any of them. Held in App-level panel
+ * state (not `ToolsUiState`), since results can be large and the UI state is
+ * snapshotted into `sessionStorage` across an OAuth redirect.
+ */
+export interface ToolCallRecord {
+  id: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  /** The effective task routing the call was sent with, so a re-run matches. */
+  runAsTask: boolean;
+  startedAt: number;
+  durationMs: number;
+  status: "ok" | "error" | "cancelled";
+  result?: CallToolResult;
+  error?: string;
+  errorCode?: number;
 }
 
 // Selection, form values, and sidebar search — controlled by the parent (App)
@@ -52,6 +77,11 @@ export interface ToolsUiState {
   // selected tool when its `execution.taskSupport` is "optional" (a "required"
   // tool is always run as a task, "forbidden" never) — see ToolDetailPanel.
   runAsTask: boolean;
+  /**
+   * The history record the response pane is showing. Unset means "the most
+   * recent call of the selected tool", which is what a fresh call lands on.
+   */
+  viewedCallId?: string;
 }
 
 export interface ToolsScreenProps {
@@ -65,6 +95,8 @@ export interface ToolsScreenProps {
    */
   malformedListItems?: MalformedListItem[];
   callState?: ToolCallState;
+  /** Completed calls, newest first, across every tool. */
+  history?: ToolCallRecord[];
   ui: ToolsUiState;
   listChanged: boolean;
   /**
@@ -85,7 +117,6 @@ export interface ToolsScreenProps {
     runAsTask?: boolean,
   ) => void;
   onCancelCall?: () => void;
-  onClearResult?: () => void;
   /**
    * Read-on-demand handler for `resource_link` blocks in a tool result.
    * Passed through to the result panel so links can inline their contents.
@@ -153,6 +184,17 @@ const DetailCard = Card.withProps({
   padding: "lg",
 });
 
+// The response column always fills the pane, so its history list pins to the
+// bottom and the response body takes the height between.
+const ResponseCard = Card.withProps({
+  withBorder: true,
+  padding: "lg",
+  variant: "preview",
+  flex: 1,
+});
+
+const NO_HISTORY: ToolCallRecord[] = [];
+
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
@@ -164,6 +206,7 @@ export function ToolsScreen({
   excludedTools,
   malformedListItems,
   callState,
+  history = NO_HISTORY,
   ui,
   listChanged,
   serverSupportsTaskToolCalls,
@@ -173,12 +216,26 @@ export function ToolsScreen({
   pagination,
   onCallTool,
   onCancelCall,
-  onClearResult,
   onReadResource,
 }: ToolsScreenProps) {
   const { selectedToolKey, formValues, search } = ui;
   const selectedTool = findToolByRowKey(tools, selectedToolKey);
   const isExecuting = callState?.status === "pending";
+  const toolHistory = selectedTool
+    ? history.filter((record) => record.toolName === selectedTool.name)
+    : [];
+  // An unset (or stale) `viewedCallId` falls back to the newest call, which is
+  // where a fresh Execute lands.
+  const viewedRecord =
+    toolHistory.find((record) => record.id === ui.viewedCallId) ??
+    toolHistory[0];
+  const shortcutLabel = executeShortcutLabel(navigator.platform);
+  // Every error `onCallTool` writes names its tool and is also in the history;
+  // one without a tool came from step-up auth recovery and has no record.
+  const unrecordedError =
+    callState?.status === "error" && callState.error && !callState.toolName
+      ? { error: callState.error, errorCode: callState.errorCode }
+      : undefined;
 
   const handleSelectTool = (key: string) => {
     // Seed the form with the tool's schema defaults so default-only fields the
@@ -190,11 +247,20 @@ export function ToolsScreen({
     // the empty-object fallback is an unreachable defensive default.
     let nextFormValues: Record<string, unknown> = {};
     /* v8 ignore next -- unreachable: onSelectTool always keys a tool in the list */
-    if (tool)
-      nextFormValues = collectSchemaDefaults(
-        toFormSchema(tool.inputSchema) ?? {},
-      );
-    onUiChange({ ...ui, selectedToolKey: key, formValues: nextFormValues });
+    if (tool) {
+      // A tool called before reopens on its last call's arguments, so the form
+      // agrees with the response pane, which shows that call.
+      const lastCall = history.find((record) => record.toolName === tool.name);
+      nextFormValues =
+        lastCall?.args ??
+        collectSchemaDefaults(toFormSchema(tool.inputSchema) ?? {});
+    }
+    onUiChange({
+      ...ui,
+      selectedToolKey: key,
+      formValues: nextFormValues,
+      viewedCallId: undefined,
+    });
   };
 
   return (
@@ -225,68 +291,69 @@ export function ToolsScreen({
         </SidebarCard>
       </Sidebar>
 
-      {callState?.result ? (
-        // Results replace the input form while present, and the panel's top-left
-        // X dismisses them back to the form (#1661) — the Prompts screen pattern.
-        // `formValues` live in the lifted UI state, so the form is restored
-        // intact for a re-run. A call in flight sets a `pending` state with no
-        // `result` (App.tsx), so the executing form (progress + cancel) shows
-        // until the result lands.
-        <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          {/* Fill the pane's full height only when the result renders a
-              "Resource Links" box, so that box can expand into the available
-              space and scroll within. Plain text/image/error results keep the
-              content-sized card (matching the input-form state) instead of
-              reserving a tall empty card. */}
-          <ContentCard
-            flex={resultHasResourceLinks(callState.result) ? 1 : undefined}
-          >
-            <ToolResultPanel
-              result={callState.result}
-              onClear={() => onClearResult?.()}
-              onReadResource={onReadResource}
-            />
-          </ContentCard>
-        </ContentPane>
-      ) : callState?.status === "error" && callState.error ? (
-        // A thrown rejection (no result) — e.g. SDK v2's `-32602` unknown-tool
-        // reject, which no longer arrives as an `isError` CallToolResult. The X
-        // dismisses back to the form, like a result (#1632).
-        <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          <ContentCard>
-            <ToolCallErrorPanel
-              error={callState.error}
-              errorCode={callState.errorCode}
-              onClear={() => onClearResult?.()}
-            />
-          </ContentCard>
-        </ContentPane>
-      ) : selectedTool ? (
-        <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          <ContentCard>
-            <ToolDetailPanel
-              tool={selectedTool}
-              // The row key, not the name — a server may list the same tool
-              // name twice (#1957), and the panel is reused across selections.
-              resetKey={selectedToolKey}
-              formValues={formValues}
-              isExecuting={isExecuting}
-              progress={callState?.progress}
-              serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
-              runAsTask={ui.runAsTask}
-              onRunAsTaskChange={(value) =>
-                onUiChange({ ...ui, runAsTask: value })
-              }
-              onFormChange={(values) =>
-                onUiChange({ ...ui, formValues: values })
-              }
-              onExecute={(runAsTask) =>
-                onCallTool(selectedTool.name, formValues, runAsTask)
-              }
-              onCancel={() => onCancelCall?.()}
-            />
-          </ContentCard>
-        </ContentPane>
+      {selectedTool ? (
+        // Request and response sit side by side (the redesign prototype): the
+        // form is never replaced by its result, so changing one argument and
+        // re-running doesn't need a dismiss-and-return trip (#1661 made that
+        // trip; this removes it).
+        <>
+          <ContentPane mah={SCROLL_MAX_HEIGHT}>
+            <ContentCard>
+              <ToolDetailPanel
+                tool={selectedTool}
+                // The row key, not the name — a server may list the same tool
+                // name twice (#1957), and the panel is reused across selections.
+                resetKey={selectedToolKey}
+                formValues={formValues}
+                isExecuting={isExecuting}
+                progress={callState?.progress}
+                serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+                runAsTask={ui.runAsTask}
+                shortcutLabel={shortcutLabel}
+                onRunAsTaskChange={(value) =>
+                  onUiChange({ ...ui, runAsTask: value })
+                }
+                onFormChange={(values) =>
+                  onUiChange({ ...ui, formValues: values })
+                }
+                onExecute={(runAsTask) => {
+                  onUiChange({ ...ui, viewedCallId: undefined });
+                  onCallTool(selectedTool.name, formValues, runAsTask);
+                }}
+                onCancel={() => onCancelCall?.()}
+              />
+            </ContentCard>
+          </ContentPane>
+          <ContentPane mah={SCROLL_MAX_HEIGHT}>
+            <ResponseCard>
+              <ToolResponsePanel
+                pending={
+                  isExecuting && callState?.toolName === selectedTool.name
+                }
+                record={viewedRecord}
+                history={toolHistory}
+                shortcutLabel={shortcutLabel}
+                unrecordedError={unrecordedError}
+                onSelectRecord={(record) =>
+                  onUiChange({
+                    ...ui,
+                    viewedCallId: record.id,
+                    formValues: record.args,
+                  })
+                }
+                onRerun={(record) => {
+                  onUiChange({
+                    ...ui,
+                    viewedCallId: undefined,
+                    formValues: record.args,
+                  });
+                  onCallTool(record.toolName, record.args, record.runAsTask);
+                }}
+                onReadResource={onReadResource}
+              />
+            </ResponseCard>
+          </ContentPane>
+        </>
       ) : (
         // Empty placeholder fills the full screen height (like Prompts/Resources)
         // rather than shrinking to its text.

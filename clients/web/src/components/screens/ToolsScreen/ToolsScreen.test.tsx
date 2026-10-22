@@ -7,6 +7,7 @@ import { setAceTextByLabel } from "../../../test/aceEditor";
 import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   ToolsScreen,
+  type ToolCallRecord,
   type ToolsScreenProps,
   type ToolsUiState,
 } from "./ToolsScreen";
@@ -28,6 +29,24 @@ const tools: Tool[] = [
     execution: { taskSupport: "optional" },
   },
 ];
+
+function textResult(text: string) {
+  return { content: [{ type: "text" as const, text }] };
+}
+
+// A completed `alpha` call; override any field per test.
+function record(overrides: Partial<ToolCallRecord> = {}): ToolCallRecord {
+  return {
+    id: "call-1",
+    toolName: "alpha",
+    args: {},
+    runAsTask: false,
+    startedAt: new Date(2026, 9, 22, 13, 20, 25).getTime(),
+    durationMs: 14,
+    status: "ok",
+    ...overrides,
+  };
+}
 
 const baseProps = {
   tools,
@@ -69,9 +88,8 @@ describe("ToolsScreen", () => {
     expect(
       screen.getByText("Select a tool to view details"),
     ).toBeInTheDocument();
-    // There is no separate results placeholder pane anymore (#1661) — results
-    // replace the input form in the single content pane when they exist.
-    expect(screen.queryByText("Results will appear here")).toBeNull();
+    // With nothing selected there is no request form and no response pane.
+    expect(screen.queryByRole("heading", { name: "Response" })).toBeNull();
   });
 
   it("shows the detail panel when a tool is selected", async () => {
@@ -217,106 +235,139 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" }, false);
   });
 
-  it("shows the result in place of the form when a selected tool has a result", () => {
-    // App owns selection + result, so a remount after a tab switch re-renders
-    // with both still set. The result replaces the input form in the single
-    // content pane (#1661): the Execute button is gone while the result shows.
+  it("shows the request form and the response side by side", () => {
+    // The redesign keeps the form mounted beside its response, so changing an
+    // argument and re-running never needs a dismiss-and-return trip.
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
         ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
-        callState={{
-          status: "ok",
-          result: { content: [{ type: "text", text: "ok" }] },
-        }}
+        history={[record({ result: textResult("ok") })]}
       />,
     );
+    expect(screen.getByRole("button", { name: /Execute/ })).toBeInTheDocument();
     expect(
-      screen.queryByText("Select a tool to view details"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Results")).toBeInTheDocument();
-    // The input form is hidden while the result is shown.
-    expect(screen.queryByRole("button", { name: /Execute/ })).toBeNull();
+      screen.getByRole("heading", { name: "Response" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
-  it("returns to the input form when the result is dismissed", async () => {
-    // App owns both `ui` and `callState`; this host mirrors that so dismissing
-    // the result (onClearResult → callState cleared) flips the single content
-    // pane back to the input form, with the selection (and thus the form)
-    // preserved for a re-run (#1661).
-    function Host() {
-      const [ui, setUi] = useState<ToolsUiState>({
-        ...EMPTY_TOOLS_UI,
-        selectedToolKey: "0:alpha",
-      });
-      const [callState, setCallState] = useState<ToolsScreenProps["callState"]>(
-        {
-          status: "ok",
-          result: { content: [{ type: "text", text: "ok" }] },
-        },
-      );
-      return (
-        <ToolsScreen
-          {...baseProps}
-          ui={ui}
-          onUiChange={setUi}
-          callState={callState}
-          onClearResult={() => setCallState(undefined)}
-        />
-      );
-    }
+  it("shows an empty response pane before the tool's first call", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+      />,
+    );
+    expect(screen.getByText(/No calls yet/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Re-run/ })).toBeNull();
+  });
+
+  it("lists only the selected tool's calls in its history", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        history={[
+          record({ id: "b1", toolName: "beta", args: { n: 9 } }),
+          record({ id: "a1", args: { n: 1 } }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("History (1)")).toBeInTheDocument();
+    expect(screen.getByText("n: 1")).toBeInTheDocument();
+    expect(screen.queryByText("n: 9")).toBeNull();
+  });
+
+  it("shows the newest call by default and restores a picked one into the form", async () => {
     const user = userEvent.setup();
-    renderWithMantine(<Host />);
-    // A result is present, so the result pane shows and the form is hidden.
-    expect(screen.getByText("Results")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Execute/ })).toBeNull();
-    // Dismissing the result flips back to the input form (Execute reappears).
-    await user.click(screen.getByRole("button", { name: "Close results" }));
-    expect(
-      await screen.findByRole("button", { name: /Execute/ }),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Results")).toBeNull();
-  });
-
-  it("renders a content-sized result card for a plain text result", () => {
+    const onUiChange = vi.fn();
     renderWithMantine(
-      <ToolsScreen
-        {...baseProps}
-        callState={{
-          status: "ok",
-          result: { content: [{ type: "text", text: "ok" }] },
-        }}
+      <ControlledToolsScreen
+        onUiChange={onUiChange}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        history={[
+          record({ id: "new", args: { n: 2 }, result: textResult("second") }),
+          record({ id: "old", args: { n: 1 }, result: textResult("first") }),
+        ]}
       />,
     );
-    expect(screen.getByText("Results")).toBeInTheDocument();
-    // No links → the result card is NOT flex-filled (sizes to content).
-    const card = screen.getByText("Results").closest(".mantine-Card-root");
-    expect(card).not.toHaveStyle({ flex: "1" });
+    expect(screen.getByText("second")).toBeInTheDocument();
+    await user.click(screen.getByText("n: 1"));
+    expect(screen.getByText("first")).toBeInTheDocument();
+    expect(screen.queryByText("second")).toBeNull();
+    const last = onUiChange.mock.calls.at(-1)?.[0] as ToolsUiState;
+    expect(last.viewedCallId).toBe("old");
+    expect(last.formValues).toEqual({ n: 1 });
   });
 
-  it("fills the result card with a Resource Links box when the result has links", () => {
-    // A resource_link result takes the full-height (`flex={1}`) card branch so
-    // the Resource Links box can grow and scroll within.
+  it("re-runs the shown call with its arguments and task routing", async () => {
+    const user = userEvent.setup();
+    const onCallTool = vi.fn();
+    const onUiChange = vi.fn();
     renderWithMantine(
-      <ToolsScreen
-        {...baseProps}
-        callState={{
-          status: "ok",
-          result: {
-            content: [
-              { type: "resource_link", uri: "demo://r/1", name: "Linked" },
-            ],
-          },
+      <ControlledToolsScreen
+        onCallTool={onCallTool}
+        onUiChange={onUiChange}
+        ui={{
+          ...EMPTY_TOOLS_UI,
+          selectedToolKey: "3:delta",
+          viewedCallId: "old",
         }}
+        history={[
+          record({ id: "new", toolName: "delta", args: { n: 2 } }),
+          record({
+            id: "old",
+            toolName: "delta",
+            args: { n: 1 },
+            runAsTask: true,
+          }),
+        ]}
       />,
     );
-    expect(
-      screen.getByRole("heading", { name: "Resource Links" }),
-    ).toBeInTheDocument();
-    // Links → the result card fills the pane (`flex: 1`), distinguishing this
-    // branch from the content-sized text-result card above.
-    const card = screen.getByText("Results").closest(".mantine-Card-root");
-    expect(card).toHaveStyle({ flex: "1" });
+    await user.click(screen.getByRole("button", { name: /Re-run/ }));
+    expect(onCallTool).toHaveBeenCalledWith("delta", { n: 1 }, true);
+    // The re-run lands as the newest call, so the pane follows it, and the
+    // form shows the arguments it was sent with.
+    const last = onUiChange.mock.calls.at(-1)?.[0] as ToolsUiState;
+    expect(last.viewedCallId).toBeUndefined();
+    expect(last.formValues).toEqual({ n: 1 });
+  });
+
+  it("points the response pane back at the newest call on Execute", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(
+      <ControlledToolsScreen
+        onUiChange={onUiChange}
+        ui={{
+          ...EMPTY_TOOLS_UI,
+          selectedToolKey: "0:alpha",
+          viewedCallId: "old",
+        }}
+        history={[record({ id: "old" })]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+    const last = onUiChange.mock.calls.at(-1)?.[0] as ToolsUiState;
+    expect(last.viewedCallId).toBeUndefined();
+  });
+
+  it("reopens a previously called tool on its last call's arguments", async () => {
+    const user = userEvent.setup();
+    const onCallTool = vi.fn();
+    renderWithMantine(
+      <ControlledToolsScreen
+        onCallTool={onCallTool}
+        history={[record({ toolName: "gamma", args: { mode: "slow" } })]}
+      />,
+    );
+    // gamma's schema default is "fast"; its last call sent "slow", and the
+    // response pane shows that call, so the form must agree with it.
+    await user.click(screen.getByText("gamma"));
+    expect(screen.getByRole("textbox", { name: /mode/i })).toHaveValue("slow");
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+    expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" }, false);
   });
 
   it("invokes onCallTool with form values on Execute", async () => {
@@ -338,39 +389,18 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "fast" }, false);
   });
 
-  it("invokes onClearResult when the result close button is clicked", async () => {
-    const user = userEvent.setup();
-    const onClearResult = vi.fn();
-    renderWithMantine(
-      <ToolsScreen
-        {...baseProps}
-        onClearResult={onClearResult}
-        callState={{
-          status: "ok",
-          result: { content: [{ type: "text", text: "ok" }] },
-        }}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Close results" }));
-    expect(onClearResult).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not clear the result when the screen unmounts", () => {
-    // The result is owned by App and must survive a tab switch (which unmounts
-    // the screen), so unmounting must NOT call onClearResult — see #1414.
-    const onClearResult = vi.fn();
-    const { unmount } = renderWithMantine(
-      <ToolsScreen
-        {...baseProps}
-        onClearResult={onClearResult}
-        callState={{
-          status: "ok",
-          result: { content: [{ type: "text", text: "ok" }] },
-        }}
-      />,
-    );
+  it("keeps the history when the screen unmounts and remounts", () => {
+    // History is App-owned and must survive a tab switch, which unmounts the
+    // screen (#1414).
+    const props = {
+      ...baseProps,
+      ui: { ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" },
+      history: [record({ result: textResult("kept") })],
+    };
+    const { unmount } = renderWithMantine(<ToolsScreen {...props} />);
     unmount();
-    expect(onClearResult).not.toHaveBeenCalled();
+    renderWithMantine(<ToolsScreen {...props} />);
+    expect(screen.getByText("kept")).toBeInTheDocument();
   });
 
   it("treats pending callState as executing", () => {
@@ -378,10 +408,22 @@ describe("ToolsScreen", () => {
       <ToolsScreen
         {...baseProps}
         ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
-        callState={{ status: "pending" }}
+        callState={{ status: "pending", toolName: "alpha" }}
       />,
     );
     expect(screen.getByRole("button", { name: /Cancel/ })).toBeInTheDocument();
+    expect(screen.getByText("Waiting for the server…")).toBeInTheDocument();
+  });
+
+  it("shows the in-flight call only in its own tool's response pane", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "1:beta" }}
+        callState={{ status: "pending", toolName: "alpha" }}
+      />,
+    );
+    expect(screen.queryByText("Waiting for the server…")).toBeNull();
   });
 
   it("invokes onCancelCall when Cancel is clicked", async () => {
@@ -416,51 +458,75 @@ describe("ToolsScreen", () => {
     expect(last.runAsTask).toBe(true);
   });
 
-  it("does not crash when onClearResult/onCancelCall are undefined", async () => {
+  it("does not crash when onCancelCall is undefined", async () => {
     const user = userEvent.setup();
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
         onCancelCall={undefined}
-        onClearResult={undefined}
-        callState={{
-          status: "ok",
-          result: { content: [{ type: "text", text: "ok" }] },
-        }}
+        callState={{ status: "pending", toolName: "alpha" }}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Close results" }));
-    expect(screen.getByText("Results")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Cancel/ }));
+    expect(screen.getByRole("button", { name: /Cancel/ })).toBeInTheDocument();
   });
 
-  it("renders a thrown error (no result) as an error panel (#1632)", () => {
+  it("renders a thrown error from history as an error panel (#1632)", () => {
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
-        callState={{ status: "error", error: "boom", errorCode: -32603 }}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        history={[
+          record({ status: "error", error: "boom", errorCode: -32603 }),
+        ]}
       />,
     );
-    expect(screen.getByText("Tool Call Failed")).toBeInTheDocument();
+    // Once as the header status, once on the history row.
+    expect(screen.getAllByText("Failed")).toHaveLength(2);
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
 
-  it("renders the unknown-tool hint for a -32602 rejection (#1632)", async () => {
-    const user = userEvent.setup();
-    const onClearResult = vi.fn();
+  it("renders the unknown-tool hint for a -32602 rejection (#1632)", () => {
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
-        onClearResult={onClearResult}
-        callState={{
-          status: "error",
-          error: "MCP error -32602: Tool ghost_tool not found",
-          errorCode: -32602,
-        }}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        history={[
+          record({
+            status: "error",
+            error: "MCP error -32602: Tool ghost_tool not found",
+            errorCode: -32602,
+          }),
+        ]}
       />,
     );
     expect(screen.getByText("Unknown Tool")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close error" }));
-    expect(onClearResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an error written by step-up recovery, which has no history record", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        callState={{ status: "error", error: "Authorization was not granted" }}
+      />,
+    );
+    expect(
+      screen.getByText("Authorization was not granted"),
+    ).toBeInTheDocument();
+  });
+
+  it("does not repeat a recorded call's error above its own response", () => {
+    renderWithMantine(
+      <ToolsScreen
+        {...baseProps}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        callState={{ status: "error", error: "boom", toolName: "alpha" }}
+        history={[record({ status: "error", error: "boom" })]}
+      />,
+    );
+    expect(screen.getAllByText("boom")).toHaveLength(1);
   });
 
   it("renders excluded tools in the sidebar with the reason (#1632)", () => {

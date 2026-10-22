@@ -405,12 +405,12 @@ export function InspectorView({
     toolsLoadError,
     toolsUi,
     toolCallState,
+    toolCallHistory,
     toolsPagination,
     serverSupportsTaskToolCalls,
     onToolsUiChange,
     onCallTool,
     onCancelToolCall,
-    onClearToolResult,
     onRefreshTools,
     onReadResourceContents,
   } = toolsPanel;
@@ -1198,6 +1198,7 @@ export function InspectorView({
                 excludedTools={excludedTools}
                 malformedListItems={malformedListItems}
                 callState={toolCallState}
+                history={toolCallHistory}
                 ui={toolsUi}
                 listChanged={toolsListChanged}
                 loadError={toolsLoadError}
@@ -1207,7 +1208,6 @@ export function InspectorView({
                 pagination={toolsPagination}
                 onCallTool={onCallTool}
                 onCancelCall={onCancelToolCall}
-                onClearResult={onClearToolResult}
                 onReadResource={onReadResourceContents}
               />
             </ScreenStage>

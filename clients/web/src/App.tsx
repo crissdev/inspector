@@ -313,6 +313,7 @@ function App() {
   const panels = useResultPanels();
   const {
     toolCallState,
+    toolCallHistory,
     getPromptState,
     readResourceState,
     clearResultPanels,
@@ -893,7 +894,6 @@ function App() {
   // why they sit after it (#2155). ---
   const {
     onCallTool,
-    onClearToolResult,
     onToolsUiChange,
     onGetPrompt,
     onReadResource,
@@ -1869,12 +1869,12 @@ function App() {
     toolsLoadError: toolsPagination.error,
     toolsUi: ui.toolsUi,
     toolCallState,
+    toolCallHistory,
     toolsPagination: toolsPaginationControls,
     serverSupportsTaskToolCalls: offersRunAsTask(protocolEra, capabilities),
     onToolsUiChange,
     onCallTool: dispatchCallTool,
     onCancelToolCall,
-    onClearToolResult,
     onRefreshTools,
     onReadResourceContents,
   };

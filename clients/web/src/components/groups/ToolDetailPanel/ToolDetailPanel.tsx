@@ -6,11 +6,13 @@ import {
   Divider,
   Group,
   Image,
+  Kbd,
   ScrollArea,
   Stack,
   Switch,
   Text,
 } from "@mantine/core";
+import { useHotkeys } from "@mantine/hooks";
 import { useId, useMemo, useState } from "react";
 import { RiArrowDownSLine, RiArrowRightSLine } from "react-icons/ri";
 import type {
@@ -63,6 +65,12 @@ export interface ToolDetailPanelProps {
    * any caller whose list cannot repeat one.
    */
   resetKey?: string;
+  /**
+   * Label for the Execute shortcut (`mod+Enter`), shown on the button. The
+   * shortcut is bound while this panel is mounted, which is only while the
+   * Tools screen is the active tab (ScreenStage unmounts inactive screens).
+   */
+  shortcutLabel?: string;
 }
 
 // Outer column: title/annotations pin at top, the Execute footer pins at the
@@ -105,6 +113,13 @@ const BodyStack = Stack.withProps({
 const FooterRow = Group.withProps({
   justify: "flex-start",
   flex: "0 0 auto",
+});
+
+const EXECUTE_KEYSHORTCUTS = "Control+Enter Meta+Enter";
+
+const ShortcutHint = Kbd.withProps({
+  size: "xs",
+  "aria-hidden": true,
 });
 
 const TitleRow = Group.withProps({
@@ -215,6 +230,7 @@ export function ToolDetailPanel({
   onExecute,
   onCancel,
   resetKey,
+  shortcutLabel,
 }: ToolDetailPanelProps) {
   const { name, title, description, icons, annotations, inputSchema } = tool;
   // Narrow the SDK protocol schema to the form renderer's schema type.
@@ -276,6 +292,21 @@ export function ToolDetailPanel({
     isExecuting ||
     hasMissingRequiredFields(formSchema, formValues) ||
     hasInvalidDraft;
+
+  const execute = () => onExecute(effectiveRunAsTask);
+  // Bound with no ignored tags, so the shortcut fires while typing in an
+  // argument field — which is exactly where the user is when they want it.
+  useHotkeys(
+    [
+      [
+        "mod+Enter",
+        () => {
+          if (!executeDisabled) execute();
+        },
+      ],
+    ],
+    [],
+  );
 
   return (
     <PanelStack>
@@ -383,9 +414,16 @@ export function ToolDetailPanel({
       <FooterRow>
         <Button
           size="md"
-          onClick={() => onExecute(effectiveRunAsTask)}
+          onClick={execute}
           disabled={executeDisabled}
           loading={isExecuting}
+          // The hint is visual only — kept out of the button's accessible name
+          // — and the shortcut is announced through `aria-keyshortcuts`, which
+          // lists both spellings because `mod` accepts either modifier.
+          aria-keyshortcuts={EXECUTE_KEYSHORTCUTS}
+          rightSection={
+            shortcutLabel && <ShortcutHint>{shortcutLabel}</ShortcutHint>
+          }
         >
           Execute Tool
         </Button>

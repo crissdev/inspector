@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -29,6 +29,7 @@ import type { TabUiStateSetters } from "./useTabUiState";
 import type { OAuthRecovery } from "./useOAuthRecovery";
 import { refreshingPersist } from "../lib/refreshingPersist";
 import type {
+  ToolCallRecord,
   ToolCallState,
   ToolsUiState,
 } from "../components/screens/ToolsScreen/ToolsScreen";
@@ -47,6 +48,9 @@ import {
 import { EMPTY_SETTINGS } from "../utils/serverSettingsDefaults";
 import type { StepUpSource } from "../utils/stepUp";
 
+/** How many completed tool calls the response pane's history keeps. */
+const MAX_TOOL_CALL_HISTORY = 50;
+
 /**
  * The three in-flight result panels, plus the two ways something other than a
  * command writes to them.
@@ -62,6 +66,10 @@ import type { StepUpSource } from "../utils/stepUp";
  */
 export interface ResultPanels {
   toolCallState: ToolCallState | undefined;
+  /** Completed tool calls, newest first, capped at {@link MAX_TOOL_CALL_HISTORY}. */
+  toolCallHistory: ToolCallRecord[];
+  /** Prepends a completed call to {@link toolCallHistory}, assigning its id. */
+  recordToolCall: (record: Omit<ToolCallRecord, "id">) => void;
   getPromptState: GetPromptState | undefined;
   readResourceState: ReadResourceState | undefined;
   setToolCallState: Dispatch<SetStateAction<ToolCallState | undefined>>;
@@ -87,6 +95,17 @@ export function useResultPanels(): ResultPanels {
   const [toolCallState, setToolCallState] = useState<ToolCallState | undefined>(
     undefined,
   );
+  const [toolCallHistory, setToolCallHistory] = useState<ToolCallRecord[]>([]);
+  // A counter rather than `crypto.randomUUID()`, which is absent outside a
+  // secure context (an Inspector served over plain http on a LAN address).
+  const nextToolCallIdRef = useRef(0);
+  const recordToolCall = useCallback((record: Omit<ToolCallRecord, "id">) => {
+    nextToolCallIdRef.current += 1;
+    const id = `call-${nextToolCallIdRef.current}`;
+    setToolCallHistory((prev) =>
+      [{ ...record, id }, ...prev].slice(0, MAX_TOOL_CALL_HISTORY),
+    );
+  }, []);
   const [getPromptState, setGetPromptState] = useState<
     GetPromptState | undefined
   >(undefined);
@@ -96,6 +115,7 @@ export function useResultPanels(): ResultPanels {
 
   const clearResultPanels = useCallback(() => {
     setToolCallState(undefined);
+    setToolCallHistory([]);
     setGetPromptState(undefined);
     setReadResourceState(undefined);
   }, []);
@@ -125,6 +145,8 @@ export function useResultPanels(): ResultPanels {
 
   return {
     toolCallState,
+    toolCallHistory,
+    recordToolCall,
     getPromptState,
     readResourceState,
     setToolCallState,
@@ -208,7 +230,6 @@ export interface ServerCommands {
     args: Record<string, unknown>,
     runAsTask?: boolean,
   ) => Promise<void>;
-  onClearToolResult: () => void;
   onToolsUiChange: (next: ToolsUiState) => void;
   onGetPrompt: (name: string, args: Record<string, string>) => Promise<void>;
   onReadResource: (uri: string) => Promise<void>;
@@ -314,7 +335,12 @@ export function useServerCommands({
   runWithCommandAuthRecovery,
   runCommandInBackground,
 }: UseServerCommandsOptions): ServerCommands {
-  const { setToolCallState, setGetPromptState, setReadResourceState } = panels;
+  const {
+    setToolCallState,
+    recordToolCall,
+    setGetPromptState,
+    setReadResourceState,
+  } = panels;
 
   const onCallTool = useCallback(
     async (
@@ -353,7 +379,22 @@ export function useServerCommands({
       // repopulates it via the `toolCallTaskUpdated` listener below, an ordinary
       // call leaves it cleared (#1455).
       activeToolCallTaskIdRef.current = undefined;
-      setToolCallState({ status: "pending" });
+      setToolCallState({ status: "pending", toolName: name });
+      const startedAt = Date.now();
+      const record = (
+        outcome: Pick<
+          ToolCallRecord,
+          "status" | "result" | "error" | "errorCode"
+        >,
+      ) =>
+        recordToolCall({
+          toolName: name,
+          args,
+          runAsTask: asTask,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          ...outcome,
+        });
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
         // anything the user types into the schema form). `callTool` requires
@@ -376,6 +417,12 @@ export function useServerCommands({
           status: invocation.success ? "ok" : "error",
           result: invocation.result ?? undefined,
           error: invocation.error,
+          toolName: name,
+        });
+        record({
+          status: invocation.success ? "ok" : "error",
+          result: invocation.result ?? undefined,
+          error: invocation.error,
         });
       } catch (err) {
         if (err instanceof AuthRecoveryRequiredError) {
@@ -394,6 +441,7 @@ export function useServerCommands({
         // failure rather than the deliberate cancel it was (#1458).
         if (err instanceof ToolCallCancelledError) {
           setToolCallState(undefined);
+          record({ status: "cancelled" });
           notifications.show({
             title: "Tool call cancelled",
             message: "A cancellation request was sent to the server.",
@@ -406,7 +454,12 @@ export function useServerCommands({
         // so callTool aborted to avoid an endless re-prompt loop. Surface that
         // explicitly rather than as a generic failure.
         if (err instanceof UrlElicitationLoopError) {
-          setToolCallState({ status: "error", error: err.message });
+          setToolCallState({
+            status: "error",
+            error: err.message,
+            toolName: name,
+          });
+          record({ status: "error", error: err.message });
           notifications.show({
             autoClose: false,
             title: "URL elicitation loop",
@@ -430,7 +483,12 @@ export function useServerCommands({
             toolName: name,
             details: formatErrorDetails(err),
           };
-          setToolCallState({ status: "error", error: errorMessage(err) });
+          setToolCallState({
+            status: "error",
+            error: errorMessage(err),
+            toolName: name,
+          });
+          record({ status: "error", error: errorMessage(err) });
           notifications.show({
             autoClose: false,
             title: "URL elicitation required",
@@ -447,6 +505,12 @@ export function useServerCommands({
           status: "error",
           error: errorMessage(err),
           errorCode: errorCodeOf(err),
+          toolName: name,
+        });
+        record({
+          status: "error",
+          error: errorMessage(err),
+          errorCode: errorCodeOf(err),
         });
       }
     },
@@ -459,13 +523,10 @@ export function useServerCommands({
       handleCommandScopedAuthRecovery,
       activeToolCallTaskIdRef,
       setToolCallState,
+      recordToolCall,
       setUrlElicitationErrorDetails,
     ],
   );
-
-  const onClearToolResult = useCallback(() => {
-    setToolCallState(undefined);
-  }, [setToolCallState]);
 
   // Tools UI changes flow through here so selecting a *different* tool also
   // drops the previous tool's result — the result panel renders `toolCallState`
@@ -1084,7 +1145,6 @@ export function useServerCommands({
 
   return {
     onCallTool,
-    onClearToolResult,
     onToolsUiChange,
     onGetPrompt,
     onReadResource,
