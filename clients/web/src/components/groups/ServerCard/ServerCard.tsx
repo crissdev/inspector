@@ -1,14 +1,32 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import {
+  ActionIcon,
+  Card,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  ThemeIcon,
+  Tooltip,
+} from "@mantine/core";
+import type { IconType } from "react-icons";
+import {
+  RiDeleteBinLine,
+  RiEditLine,
+  RiFileCopyLine,
+  RiGlobalLine,
+  RiInformationLine,
+  RiSettings3Line,
+  RiTerminalBoxLine,
+} from "react-icons/ri";
 import type {
   MCPServerConfig,
   ServerEntry,
   ServerType,
 } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
-import { TransportBadge } from "../../elements/TransportBadge/TransportBadge";
 import { ConnectionToggle } from "../../elements/ConnectionToggle/ConnectionToggle";
-import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { CARD_SCROLL_DELAY_MS } from "../../views/InspectorView/monitorColumnAnimation";
 
 export interface ServerCardProps extends ServerEntry {
@@ -75,18 +93,9 @@ const HeaderLeft = Group.withProps({
   flex: 1,
 });
 
-const MetaRow = Group.withProps({
-  gap: "sm",
-  mih: 30,
-});
-
 const HeaderRight = Group.withProps({
   gap: "sm",
   wrap: "nowrap",
-});
-
-const ActionsRow = Group.withProps({
-  gap: "xs",
 });
 
 const ServerName = Text.withProps({
@@ -97,40 +106,122 @@ const ServerName = Text.withProps({
   flex: 1,
 });
 
-const ModeText = Text.withProps({
-  size: "sm",
-  c: "dimmed",
+// The transport as a glyph beside the name: a terminal for stdio, a globe for
+// the HTTP transports. Decorative — the footer names the transport in text.
+const TransportIcon = ThemeIcon.withProps({
+  variant: "light",
+  color: "gray",
+  size: "md",
+  radius: "sm",
+  "aria-hidden": true,
 });
 
-const ProtocolText = Text.withProps({
-  size: "sm",
-  c: "dimmed",
-  ml: "auto",
+const TRANSPORT_ICONS: Record<ServerType, IconType> = {
+  stdio: RiTerminalBoxLine,
+  sse: RiGlobalLine,
+  "streamable-http": RiGlobalLine,
+};
+
+// The command or URL on one line, on the raised "on-card" code surface, so a
+// long command no longer makes every card a tall code block. The full text is
+// in the hover title and one click away through the copy button.
+const CommandSurface = Paper.withProps({
+  px: "sm",
+  py: 4,
+  radius: "sm",
+  bg: "var(--inspector-code-surface)",
 });
 
-const SubtleButton = Button.withProps({
-  variant: "subtle",
+const CommandRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
+});
+
+const CommandText = Text.withProps({
+  ff: "monospace",
+  size: "sm",
+  truncate: "end",
+  flex: 1,
+  miw: 0,
+});
+
+const FooterRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+  gap: "sm",
+});
+
+// Transport, server version and negotiated protocol as one dimmed line, each
+// its own text run so they read (and can be found) separately.
+const MetaLine = Group.withProps({
+  gap: 6,
+  wrap: "nowrap",
+  miw: 0,
+});
+
+const MetaText = Text.withProps({
   size: "xs",
+  c: "dimmed",
+  truncate: "end",
 });
 
-// Raise the card's ContentViewer Code block (the command/URL) to the "on-card"
-// surface — white in light mode — mirroring the Protocol/Network `inset` message
-// cards, so it reads as raised on the card instead of blending with it. Set as a
-// cascade var on the card root; the Code theme reads `--inspector-code-surface`.
+const MetaSeparator = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+  "aria-hidden": true,
+});
+
+const ActionsRow = Group.withProps({
+  gap: 2,
+  wrap: "nowrap",
+});
+
+const IconAction = ActionIcon.withProps({
+  variant: "subtle",
+  color: "gray",
+  size: "md",
+});
+
+// `color` drives the subtle hover/active tint; `c` overrides just the glyph to
+// the AA-compliant danger red (red.6 alone fell under contrast).
+const DangerIconAction = ActionIcon.withProps({
+  variant: "subtle",
+  color: "red.6",
+  c: "var(--inspector-danger-text)",
+  size: "md",
+});
+
+// Raise the card's command surface to the "on-card" surface — white in light
+// mode — mirroring the Protocol/Network `inset` message cards, so it reads as
+// raised on the card instead of blending with it. Set as a cascade var on the
+// card root, which `CommandSurface` reads.
 const CARD_STYLES = {
   root: {
     "--inspector-code-surface": "var(--inspector-surface-code-oncard)",
   },
 } as const;
 
-const RemoveButton = Button.withProps({
-  variant: "subtle",
-  size: "xs",
-  // `color` drives the subtle hover/active tint; `c` overrides just the label
-  // to the AA-compliant danger red (red.6 text alone fell under contrast).
-  color: "red.6",
-  c: "var(--inspector-danger-text)",
-});
+/** One labelled icon action: the label is both the tooltip and the name. */
+function CardAction({
+  label,
+  icon: Icon,
+  danger = false,
+  onClick,
+}: {
+  label: string;
+  icon: IconType;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  const Action = danger ? DangerIconAction : IconAction;
+  return (
+    <Tooltip label={label} withArrow>
+      <Action aria-label={label} onClick={onClick}>
+        <Icon size={16} />
+      </Action>
+    </Tooltip>
+  );
+}
 
 function getTransport(config: MCPServerConfig): ServerType {
   return config.type ?? "stdio";
@@ -220,6 +311,7 @@ export function ServerCard({
     return () => clearTimeout(timer);
   }, [justConnected]);
   const transport = getTransport(config);
+  const TransportGlyph = TRANSPORT_ICONS[transport];
   const commandOrUrl = getCommandOrUrl(config);
   const version = info?.version;
   const protocolVersion =
@@ -248,6 +340,9 @@ export function ServerCard({
         <HeaderRow>
           <HeaderLeft>
             {dragHandle}
+            <TransportIcon>
+              <TransportGlyph size={16} />
+            </TransportIcon>
             <ServerName>{name}</ServerName>
           </HeaderLeft>
           <HeaderRight>
@@ -271,48 +366,64 @@ export function ServerCard({
 
         {!compact && (
           <>
-            <MetaRow>
-              {version && <Badge variant="outline">{version}</Badge>}
-              <TransportBadge transport={transport} />
-              <ModeText>{TRANSPORT_DESCRIPTION[transport]}</ModeText>
-              {protocolVersion && (
-                <ProtocolText>MCP {protocolVersion}</ProtocolText>
-              )}
-            </MetaRow>
+            <CommandSurface>
+              <CommandRow>
+                <CommandText title={commandOrUrl}>{commandOrUrl}</CommandText>
+                <CopyButton value={commandOrUrl} flush />
+              </CommandRow>
+            </CommandSurface>
 
-            <ContentViewer
-              block={{ type: "text", text: commandOrUrl }}
-              copyable
-              wrap={false}
-            />
-
-            <Group justify="space-between">
+            <FooterRow>
+              <MetaLine>
+                <MetaText>{TRANSPORT_DESCRIPTION[transport]}</MetaText>
+                {version && (
+                  <>
+                    <MetaSeparator>·</MetaSeparator>
+                    <MetaText>{version}</MetaText>
+                  </>
+                )}
+                {protocolVersion && (
+                  <>
+                    <MetaSeparator>·</MetaSeparator>
+                    <MetaText>MCP {protocolVersion}</MetaText>
+                  </>
+                )}
+              </MetaLine>
               <ActionsRow>
+                {connection.status === "connected" && (
+                  <CardAction
+                    label="Connection Info"
+                    icon={RiInformationLine}
+                    onClick={() => onConnectionInfo(id)}
+                  />
+                )}
                 {writable && (
                   <>
-                    <SubtleButton onClick={() => onClone(id)}>
-                      Clone
-                    </SubtleButton>
-                    <SubtleButton onClick={() => onEdit(id)}>Edit</SubtleButton>
-                    <RemoveButton onClick={() => onRemove(id)}>
-                      Remove
-                    </RemoveButton>
+                    <CardAction
+                      label="Settings"
+                      icon={RiSettings3Line}
+                      onClick={() => onSettings(id)}
+                    />
+                    <CardAction
+                      label="Edit"
+                      icon={RiEditLine}
+                      onClick={() => onEdit(id)}
+                    />
+                    <CardAction
+                      label="Clone"
+                      icon={RiFileCopyLine}
+                      onClick={() => onClone(id)}
+                    />
+                    <CardAction
+                      label="Remove"
+                      icon={RiDeleteBinLine}
+                      danger
+                      onClick={() => onRemove(id)}
+                    />
                   </>
                 )}
               </ActionsRow>
-              <ActionsRow>
-                {connection.status === "connected" && (
-                  <SubtleButton onClick={() => onConnectionInfo(id)}>
-                    Connection Info
-                  </SubtleButton>
-                )}
-                {writable && (
-                  <SubtleButton onClick={() => onSettings(id)}>
-                    Settings
-                  </SubtleButton>
-                )}
-              </ActionsRow>
-            </Group>
+            </FooterRow>
           </>
         )}
       </Stack>

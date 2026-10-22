@@ -298,15 +298,9 @@ will close out as part of that work.
 - **Callbacks → core hook** — None. Status comes from a core task-tracking hook (e.g. `useTasks`) in the wiring layer.
 - **Internal refactors** — Update the import path for `TaskStatus` to the core module; no visual changes.
 
-### TransportBadge
+### TransportBadge (removed)
 
-- **Location** — `elements/TransportBadge/TransportBadge.tsx`
-- **Purpose** — Small outline badge labeling a server's transport (`STDIO` or `HTTP`).
-- **Current props** — `transport: "stdio" | "http"`.
-- **MCP schema touch points** — None — transport is not in the MCP wire schema; it is described by core-owned server-config types (stdio command/args vs. streamable HTTP URL, matching v1.5's `StdioServerParameters` and streamable-HTTP transport options).
-- **Target props** — `transport: TransportKind` where `TransportKind = "stdio" | "streamable-http" | "sse"` is owned by `core/` (aligning with v1.5's supported transports).
-- **Callbacks → core hook** — None. Value comes from the server-config record exposed by the wiring layer.
-- **Internal refactors** — Extend the display-label map to cover `streamable-http` (e.g. `"HTTP"`) and `sse` (e.g. `"SSE"`) so the badge can render every transport core supports.
+- **Status** — Removed. Its only consumer, `ServerCard`, now shows the transport as an icon beside the server name (a terminal for stdio, a globe for the HTTP transports) and names it in text on the card's meta line ("Standard I/O", "Streamable HTTP", "SSE (Server Sent Events) [deprecated]").
 
 <!-- /AGENT:ELEMENTS -->
 
@@ -574,7 +568,7 @@ will close out as part of that work.
 
 - **Location**: `groups/ServerCard/`
 - **Purpose**: Card for a configured server with status, transport, connection toggle, actions, and test-client-features menu.
-- **Current props**: `id`, `name`, `version?`, `transport`, `command`, `status`, `retryCount?`, `error?`, `activeServer?`, action handlers. (The grey transport descriptor next to the `TransportBadge` is derived from `config.type` — "Standard I/O", "SSE (Server Sent Events) [deprecated]", or "Streamable HTTP" — not a separate `connectionMode` prop. The "Test Client Features" dropdown was removed; sampling/elicitation/roots simulators live elsewhere.)
+- **Current props**: `id`, `name`, `version?`, `transport`, `command`, `status`, `retryCount?`, `error?`, `activeServer?`, action handlers. (The transport icon and the grey transport descriptor on the meta line are derived from `config.type` — "Standard I/O", "SSE (Server Sent Events) [deprecated]", or "Streamable HTTP" — not a separate `connectionMode` prop. The "Test Client Features" dropdown was removed; sampling/elicitation/roots simulators live elsewhere.)
 - **MCP schema touch points**: `Implementation` (server `name`, `version`) from `InitializeResult.serverInfo`. Transport/command/status are Inspector-core-owned (connection lifecycle).
 - **Target props**: `id: string` (the `MCPConfig.mcpServers` map key), `name: string` (display label), `config: InspectorServerConfig`, `info?: Implementation`, `connection: InspectorConnectionState` (`status`, `retryCount`, `error`), `activeServer?` (read-only — set by the wiring layer), action handlers all keyed by `id`.
 - **Callbacks → core hook**: `onToggleConnection(id)` from `useConnection` — the wiring layer reads the current `connection.status` for that id and dispatches connect or disconnect (no separate `onSetActiveServer`; active state is owned by the wiring layer); `onEdit`/`onClone`/`onRemove` from `useServers`.

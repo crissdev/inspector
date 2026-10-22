@@ -23,8 +23,11 @@ export function ConnectionToggle({
   const isConnecting = status === "connecting";
 
   return (
+    // `md`, a step down from `lg`: about 0.8 of its size, so the switch sits in
+    // proportion to the server card's header text. A size prop rather than a
+    // CSS `scale`, which would shrink the drawing but keep the old footprint.
     <Switch
-      size="lg"
+      size="md"
       checked={isConnected || isConnecting}
       disabled={disabled || isConnecting}
       onChange={onToggle}

@@ -60,18 +60,34 @@ describe("ServerCard", () => {
 
   it("renders STDIO transport details", () => {
     renderWithMantine(<ServerCard {...baseProps} />);
-    expect(screen.getByText("STDIO")).toBeInTheDocument();
     expect(screen.getByText("Standard I/O")).toBeInTheDocument();
     expect(
       screen.getByText("npx -y @modelcontextprotocol/server-everything"),
     ).toBeInTheDocument();
   });
 
+  it("shows the command on one line, with the full text on hover and a copy button", () => {
+    renderWithMantine(<ServerCard {...baseProps} />);
+    const command = "npx -y @modelcontextprotocol/server-everything";
+    expect(screen.getByText(command)).toHaveAttribute("title", command);
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+  });
+
+  it("separates the meta line's parts only between parts that are present", () => {
+    const { rerender } = renderWithMantine(
+      <ServerCard {...baseProps} info={undefined} connection={disconnected} />,
+    );
+    // Transport alone: nothing to separate.
+    expect(screen.queryByText("·")).toBeNull();
+    rerender(<ServerCard {...baseProps} />);
+    // Transport · version · protocol.
+    expect(screen.getAllByText("·")).toHaveLength(2);
+  });
+
   it("renders HTTP transport details for streamable-http config", () => {
     renderWithMantine(
       <ServerCard {...baseProps} config={httpConfig} info={undefined} />,
     );
-    expect(screen.getByText("HTTP")).toBeInTheDocument();
     expect(screen.getByText("Streamable HTTP")).toBeInTheDocument();
     expect(screen.getByText("https://api.example.com/mcp")).toBeInTheDocument();
   });
