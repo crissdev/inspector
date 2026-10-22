@@ -1,7 +1,6 @@
 import { AppShell } from "@mantine/core";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
-import { useArgs } from "storybook/preview-api";
+import { expect, fn, userEvent, within } from "storybook/test";
 import {
   ClientSettingsModal,
   type ClientSettingsModalProps,
@@ -17,23 +16,13 @@ const configuredSettings: ClientSettingsFormValues = {
   clientMetadataUrl: "https://example.com/oauth/client.json",
 };
 
+// The dialog edits its own draft and only reports on Save, so the story needs
+// no arg syncing — just the AppShell the real dialog opens over.
 function InteractiveRender(args: ClientSettingsModalProps) {
-  const [, updateArgs] = useArgs<ClientSettingsModalProps>();
-
   return (
     <AppShell>
       <AppShell.Main>
-        <ClientSettingsModal
-          {...args}
-          onSettingsChange={(settings) => {
-            args.onSettingsChange(settings);
-            const next =
-              typeof settings === "function"
-                ? settings(args.settings)
-                : settings;
-            updateArgs({ settings: next });
-          }}
-        />
+        <ClientSettingsModal {...args} />
       </AppShell.Main>
     </AppShell>
   );
@@ -47,7 +36,7 @@ const meta: Meta<typeof ClientSettingsModal> = {
   args: {
     opened: true,
     onClose: fn(),
-    onSettingsChange: fn(),
+    onSave: fn(),
   },
 };
 
@@ -83,5 +72,35 @@ export const EnabledEmptyFields: Story = {
       cimdEnabled: false,
       clientMetadataUrl: "",
     },
+  },
+};
+
+// Enabling enterprise IdP with its required fields blank: Save reveals the
+// errors and stays open, while Cancel (or ✕ / Escape) still closes.
+export const SaveRevealsErrors: Story = {
+  args: {
+    settings: {
+      emaEnabled: false,
+      issuer: "",
+      clientId: "",
+      clientSecret: "",
+      cimdEnabled: false,
+      clientMetadataUrl: "",
+    },
+  },
+  play: async ({ canvasElement, args }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(
+      await body.findByRole("checkbox", {
+        name: "Enable enterprise IdP configuration",
+      }),
+    );
+    await userEvent.click(body.getByRole("button", { name: "Save" }));
+    await expect(
+      body.getByText(
+        "Issuer is required when enterprise IdP configuration is enabled",
+      ),
+    ).toBeInTheDocument();
+    await expect(args.onSave).not.toHaveBeenCalled();
   },
 };

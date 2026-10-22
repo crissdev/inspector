@@ -1,8 +1,10 @@
-import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { ClientSettingsModal } from "./ClientSettingsModal";
+import {
+  ClientSettingsModal,
+  type ClientSettingsModalProps,
+} from "./ClientSettingsModal";
 import {
   EMPTY_CLIENT_SETTINGS,
   ISSUER_URL_ERROR,
@@ -12,122 +14,60 @@ import {
 } from "../ClientSettingsForm/clientSettingsValues";
 import { CIMD_METADATA_URL_INVALID_ERROR } from "@inspector/core/client/config-parse.js";
 
-function resolveSettingsChange(
-  call: unknown,
-  prev: ClientSettingsFormValues,
-): ClientSettingsFormValues {
-  return typeof call === "function"
-    ? (call as (p: ClientSettingsFormValues) => ClientSettingsFormValues)(prev)
-    : (call as ClientSettingsFormValues);
-}
-
 async function expandCimdSection(user: ReturnType<typeof userEvent.setup>) {
   await user.click(
     screen.getByRole("button", { name: /OAuth Client ID Metadata Document/i }),
   );
 }
 
+function renderModal(props: Partial<ClientSettingsModalProps> = {}) {
+  const onClose = vi.fn();
+  const onSave = vi.fn();
+  renderWithMantine(
+    <ClientSettingsModal
+      opened
+      settings={EMPTY_CLIENT_SETTINGS}
+      onClose={onClose}
+      onSave={onSave}
+      {...props}
+    />,
+  );
+  return { onClose: props.onClose ?? onClose, onSave: props.onSave ?? onSave };
+}
+
+const enableEma = (user: ReturnType<typeof userEvent.setup>) =>
+  user.click(
+    screen.getByRole("checkbox", {
+      name: "Enable enterprise IdP configuration",
+    }),
+  );
+
+const clickSave = (user: ReturnType<typeof userEvent.setup>) =>
+  user.click(screen.getByRole("button", { name: "Save" }));
+
+const completeEma: ClientSettingsFormValues = {
+  ...EMPTY_CLIENT_SETTINGS,
+  emaEnabled: true,
+  issuer: "https://idp.test",
+  clientId: "client-1",
+};
+
 describe("ClientSettingsModal", () => {
   it("renders the title when opened", () => {
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={EMPTY_CLIENT_SETTINGS}
-        onClose={vi.fn()}
-        onSettingsChange={vi.fn()}
-      />,
-    );
+    renderModal();
     expect(screen.getByText("Client Settings")).toBeInTheDocument();
   });
 
-  it("invokes onClose when the CloseButton is clicked", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={EMPTY_CLIENT_SETTINGS}
-        onClose={onClose}
-        onSettingsChange={vi.fn()}
-      />,
-    );
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    );
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("calls onSettingsChange when toggling EMA enable", async () => {
-    const user = userEvent.setup();
-    const onSettingsChange = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={EMPTY_CLIENT_SETTINGS}
-        onClose={vi.fn()}
-        onSettingsChange={onSettingsChange}
-      />,
-    );
-    await user.click(
-      screen.getByRole("checkbox", {
-        name: "Enable enterprise IdP configuration",
-      }),
-    );
-    expect(onSettingsChange).toHaveBeenCalledWith(expect.any(Function));
-    expect(
-      resolveSettingsChange(
-        onSettingsChange.mock.calls[0]![0],
-        EMPTY_CLIENT_SETTINGS,
-      ),
-    ).toEqual({
-      ...EMPTY_CLIENT_SETTINGS,
-      emaEnabled: true,
-    });
-  });
-
   it("shows IdP fields when EMA is enabled", () => {
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={{ ...EMPTY_CLIENT_SETTINGS, emaEnabled: true }}
-        onClose={vi.fn()}
-        onSettingsChange={vi.fn()}
-      />,
-    );
+    renderModal({ settings: { ...EMPTY_CLIENT_SETTINGS, emaEnabled: true } });
     expect(screen.getByLabelText("Issuer")).toBeInTheDocument();
     expect(screen.getByLabelText("IdP Client ID")).toBeInTheDocument();
     expect(screen.getByLabelText("IdP Client Secret")).toBeInTheDocument();
   });
 
-  it("calls onSettingsChange when typing issuer", async () => {
-    const user = userEvent.setup();
-    const onSettingsChange = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={{ ...EMPTY_CLIENT_SETTINGS, emaEnabled: true }}
-        onClose={vi.fn()}
-        onSettingsChange={onSettingsChange}
-      />,
-    );
-    const initial = { ...EMPTY_CLIENT_SETTINGS, emaEnabled: true };
-    await user.type(screen.getByLabelText("Issuer"), "h");
-    expect(onSettingsChange).toHaveBeenCalled();
-    const call =
-      onSettingsChange.mock.calls[onSettingsChange.mock.calls.length - 1]![0];
-    expect(resolveSettingsChange(call, initial).issuer).toBe("h");
-  });
-
   it("collapses then re-expands all sections via the list toggle", async () => {
     const user = userEvent.setup();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={EMPTY_CLIENT_SETTINGS}
-        onClose={vi.fn()}
-        onSettingsChange={vi.fn()}
-      />,
-    );
+    renderModal();
 
     // Default: EMA open, CIMD collapsed — toggle offers "Expand all".
     const expand = screen.getByRole("button", { name: "Expand all" });
@@ -137,327 +77,149 @@ describe("ClientSettingsModal", () => {
     ).toBeInTheDocument();
 
     await user.click(expand);
-    expect(
-      screen.getByRole("button", { name: "Collapse all" }),
-    ).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(
-      screen.getByRole("button", { name: "Expand all" }),
-    ).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "Expand all" }));
     expect(
       screen.getByRole("button", { name: "Collapse all" }),
     ).toBeInTheDocument();
   });
 
-  const clickClose = (user: ReturnType<typeof userEvent.setup>) =>
-    user.click(document.querySelector("button.mantine-CloseButton-root")!);
+  describe("Save", () => {
+    it("is disabled until something changes", async () => {
+      const user = userEvent.setup();
+      renderModal();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      await enableEma(user);
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+      // Undoing the change makes the draft match the saved settings again.
+      await enableEma(user);
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    });
 
-  it("blocks close and reveals the issuer error when the issuer is invalid", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={{
-          ...EMPTY_CLIENT_SETTINGS,
-          emaEnabled: true,
-          issuer: "not-a-url",
-          clientId: "client-1",
-        }}
-        onClose={onClose}
-        onSettingsChange={vi.fn()}
-      />,
-    );
-
-    // Error is hidden initially (form gates it on blur)...
-    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
-    // ...but a close attempt reveals it and does NOT close (no silent drop).
-    await clickClose(user);
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
-  });
-
-  it("blocks close and reveals the required error when the client ID is blank", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={{
-          ...EMPTY_CLIENT_SETTINGS,
-          emaEnabled: true,
-          issuer: "https://idp.test", // valid issuer, but clientId is blank
-        }}
-        onClose={onClose}
-        onSettingsChange={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.queryByText(CLIENT_ID_REQUIRED_ERROR),
-    ).not.toBeInTheDocument();
-    await clickClose(user);
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText(CLIENT_ID_REQUIRED_ERROR)).toBeInTheDocument();
-  });
-
-  it("allows close once the invalid issuer is corrected", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    function Host() {
-      const [settings, setSettings] = useState({
-        ...EMPTY_CLIENT_SETTINGS,
-        emaEnabled: true,
-        issuer: "not-a-url",
-        clientId: "client-1", // complete except for the issuer
+    it("hands the edited settings to onSave without closing on its own", async () => {
+      const user = userEvent.setup();
+      const { onSave, onClose } = renderModal({ settings: completeEma });
+      await user.type(screen.getByLabelText("IdP Client Secret"), "s3cret");
+      await clickSave(user);
+      expect(onSave).toHaveBeenCalledWith({
+        ...completeEma,
+        clientSecret: "s3cret",
       });
-      return (
-        <ClientSettingsModal
-          opened
-          settings={settings}
-          onClose={onClose}
-          onSettingsChange={setSettings}
-        />
-      );
-    }
-    renderWithMantine(<Host />);
+      expect(onClose).not.toHaveBeenCalled();
+    });
 
-    await clickClose(user); // blocked, error revealed
-    expect(onClose).not.toHaveBeenCalled();
-
-    const issuer = screen.getByLabelText("Issuer");
-    await user.clear(issuer);
-    await user.type(issuer, "https://idp.test");
-    expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
-
-    await clickClose(user); // now complete + valid -> closes
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows close once a blank client ID is filled", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    function Host() {
-      const [settings, setSettings] = useState({
-        ...EMPTY_CLIENT_SETTINGS,
-        emaEnabled: true,
-        issuer: "https://idp.test", // complete except for the clientId
+    it("saves a disabled feature even with its fields blank", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderModal({
+        settings: { ...EMPTY_CLIENT_SETTINGS, emaEnabled: true },
       });
-      return (
-        <ClientSettingsModal
-          opened
-          settings={settings}
-          onClose={onClose}
-          onSettingsChange={setSettings}
-        />
-      );
-    }
-    renderWithMantine(<Host />);
+      // Disabling enterprise IdP leaves nothing required.
+      await enableEma(user);
+      await clickSave(user);
+      expect(onSave).toHaveBeenCalledWith(EMPTY_CLIENT_SETTINGS);
+    });
 
-    await clickClose(user); // blocked on blank clientId
-    expect(onClose).not.toHaveBeenCalled();
-
-    await user.type(screen.getByLabelText("IdP Client ID"), "client-1");
-    await clickClose(user); // now complete -> closes
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows close by disabling enterprise IdP when the config is incomplete", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    function Host() {
-      const [settings, setSettings] = useState({
-        ...EMPTY_CLIENT_SETTINGS,
-        emaEnabled: true, // enabled but issuer + clientId blank
+    it("reveals the issuer error and does not save an invalid issuer", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderModal({
+        settings: { ...completeEma, issuer: "https://idp.test" },
       });
-      return (
-        <ClientSettingsModal
-          opened
-          settings={settings}
-          onClose={onClose}
-          onSettingsChange={setSettings}
-        />
+      const issuer = screen.getByLabelText("Issuer");
+      await user.clear(issuer);
+      await user.type(issuer, "not-a-url");
+      await clickSave(user);
+      expect(onSave).not.toHaveBeenCalled();
+      expect(screen.getByText(ISSUER_URL_ERROR)).toBeInTheDocument();
+
+      await user.clear(issuer);
+      await user.type(issuer, "https://idp2.test");
+      expect(screen.queryByText(ISSUER_URL_ERROR)).not.toBeInTheDocument();
+      await clickSave(user);
+      expect(onSave).toHaveBeenCalledWith({
+        ...completeEma,
+        issuer: "https://idp2.test",
+      });
+    });
+
+    it("reveals the required error when enabling IdP with a blank client ID", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderModal();
+      await enableEma(user);
+      await user.type(screen.getByLabelText("Issuer"), "https://idp.test");
+      expect(
+        screen.queryByText(CLIENT_ID_REQUIRED_ERROR),
+      ).not.toBeInTheDocument();
+      await clickSave(user);
+      expect(onSave).not.toHaveBeenCalled();
+      expect(screen.getByText(CLIENT_ID_REQUIRED_ERROR)).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("IdP Client ID"), "client-1");
+      await clickSave(user);
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    it("reveals the CIMD errors for a blank and an invalid URL", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderModal();
+      await expandCimdSection(user);
+      await user.click(
+        screen.getByRole("checkbox", {
+          name: "Use Client ID Metadata Document",
+        }),
       );
-    }
-    renderWithMantine(<Host />);
+      await clickSave(user);
+      expect(onSave).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(CLIENT_METADATA_URL_REQUIRED_ERROR),
+      ).toBeInTheDocument();
 
-    await clickClose(user); // blocked: required fields blank
-    expect(onClose).not.toHaveBeenCalled();
+      const url = screen.getByLabelText("Client ID metadata document URL");
+      await user.type(url, "not-a-url");
+      await clickSave(user);
+      expect(onSave).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(CIMD_METADATA_URL_INVALID_ERROR),
+      ).toBeInTheDocument();
 
-    // Disabling enterprise IdP is the escape hatch — nothing required to save.
-    await user.click(
-      screen.getByRole("checkbox", {
-        name: "Enable enterprise IdP configuration",
-      }),
-    );
-    await clickClose(user);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("blocks close and reveals the CIMD URL error when the URL is invalid", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={{
-          ...EMPTY_CLIENT_SETTINGS,
-          cimdEnabled: true,
-          clientMetadataUrl: "not-a-url",
-        }}
-        onClose={onClose}
-        onSettingsChange={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
-    ).not.toBeInTheDocument();
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    );
-    expect(onClose).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(CIMD_METADATA_URL_INVALID_ERROR),
-    ).toBeInTheDocument();
-  });
-
-  it("allows close once an invalid CIMD URL is corrected", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    function Host() {
-      const [settings, setSettings] = useState({
+      await user.clear(url);
+      await user.type(url, "https://example.com/cimd.json");
+      await clickSave(user);
+      expect(onSave).toHaveBeenCalledWith({
         ...EMPTY_CLIENT_SETTINGS,
         cimdEnabled: true,
-        clientMetadataUrl: "not-a-url",
+        clientMetadataUrl: "https://example.com/cimd.json",
       });
-      return (
-        <ClientSettingsModal
-          opened
-          settings={settings}
-          onClose={onClose}
-          onSettingsChange={setSettings}
-        />
-      );
-    }
-    renderWithMantine(<Host />);
-
-    const close = () =>
-      user.click(document.querySelector("button.mantine-CloseButton-root")!);
-
-    await close();
-    expect(onClose).not.toHaveBeenCalled();
-
-    await expandCimdSection(user);
-    const url = screen.getByLabelText("Client ID metadata document URL");
-    await user.clear(url);
-    await user.type(url, "https://example.com/cimd.json");
-    expect(
-      screen.queryByText(CIMD_METADATA_URL_INVALID_ERROR),
-    ).not.toBeInTheDocument();
-
-    await close();
-    expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("blocks close and reveals the required error when the CIMD URL is blank", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithMantine(
-      <ClientSettingsModal
-        opened
-        settings={{
-          ...EMPTY_CLIENT_SETTINGS,
-          cimdEnabled: true, // enabled but metadata URL blank
-        }}
-        onClose={onClose}
-        onSettingsChange={vi.fn()}
-      />,
-    );
+  describe("closing discards the draft", () => {
+    // The reported bug: enabling IdP left required fields blank, and every
+    // close attempt was refused. Closing must always work.
+    it("closes from the ✕ with an incomplete draft, without saving", async () => {
+      const user = userEvent.setup();
+      const { onClose, onSave } = renderModal();
+      await enableEma(user);
+      await user.click(screen.getByRole("button", { name: "Close" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onSave).not.toHaveBeenCalled();
+    });
 
-    expect(
-      screen.queryByText(CLIENT_METADATA_URL_REQUIRED_ERROR),
-    ).not.toBeInTheDocument();
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    );
-    expect(onClose).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(CLIENT_METADATA_URL_REQUIRED_ERROR),
-    ).toBeInTheDocument();
-  });
+    it("closes from Cancel", async () => {
+      const user = userEvent.setup();
+      const { onClose, onSave } = renderModal();
+      await enableEma(user);
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onSave).not.toHaveBeenCalled();
+    });
 
-  it("allows close once a blank CIMD URL is filled", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    function Host() {
-      const [settings, setSettings] = useState({
-        ...EMPTY_CLIENT_SETTINGS,
-        cimdEnabled: true, // enabled but metadata URL blank
-      });
-      return (
-        <ClientSettingsModal
-          opened
-          settings={settings}
-          onClose={onClose}
-          onSettingsChange={setSettings}
-        />
-      );
-    }
-    renderWithMantine(<Host />);
-
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    ); // blocked on blank URL
-    expect(onClose).not.toHaveBeenCalled();
-
-    await expandCimdSection(user);
-    await user.type(
-      screen.getByLabelText("Client ID metadata document URL"),
-      "https://example.com/cimd.json",
-    );
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    );
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows close by disabling CIMD when the URL is blank", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    function Host() {
-      const [settings, setSettings] = useState({
-        ...EMPTY_CLIENT_SETTINGS,
-        cimdEnabled: true, // enabled but metadata URL blank
-      });
-      return (
-        <ClientSettingsModal
-          opened
-          settings={settings}
-          onClose={onClose}
-          onSettingsChange={setSettings}
-        />
-      );
-    }
-    renderWithMantine(<Host />);
-
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    ); // blocked: URL required
-    expect(onClose).not.toHaveBeenCalled();
-
-    // Disabling CIMD is the escape hatch — nothing required to save.
-    await expandCimdSection(user);
-    await user.click(
-      screen.getByRole("checkbox", { name: "Use Client ID Metadata Document" }),
-    );
-    await user.click(
-      document.querySelector("button.mantine-CloseButton-root")!,
-    );
-    expect(onClose).toHaveBeenCalledTimes(1);
+    it("closes on Escape", async () => {
+      const user = userEvent.setup();
+      const { onClose } = renderModal();
+      await enableEma(user);
+      await user.keyboard("{Escape}");
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("does not render the modal body when closed", () => {
@@ -466,7 +228,7 @@ describe("ClientSettingsModal", () => {
         opened={false}
         settings={EMPTY_CLIENT_SETTINGS}
         onClose={vi.fn()}
-        onSettingsChange={vi.fn()}
+        onSave={vi.fn()}
       />,
     );
     expect(screen.queryByText("Client Settings")).not.toBeInTheDocument();
@@ -482,7 +244,7 @@ describe("ClientSettingsModal", () => {
           opened
           settings={EMPTY_CLIENT_SETTINGS}
           onClose={vi.fn()}
-          onSettingsChange={vi.fn()}
+          onSave={vi.fn()}
           secretStorage={{
             kind: "file",
             reason: "fallback",
@@ -507,7 +269,7 @@ describe("ClientSettingsModal", () => {
           opened
           settings={EMPTY_CLIENT_SETTINGS}
           onClose={vi.fn()}
-          onSettingsChange={vi.fn()}
+          onSave={vi.fn()}
         />,
       );
       expect(screen.queryByTestId("secret-storage-footer")).toBeNull();

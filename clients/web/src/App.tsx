@@ -91,6 +91,7 @@ import { ServerSettingsModal } from "./components/groups/ServerSettingsModal/Ser
 import { ClientSettingsModal } from "./components/groups/ClientSettingsModal/ClientSettingsModal";
 import {
   canPersistClientSettingsDraft,
+  type ClientSettingsFormValues,
   clientConfigToFormValues,
   EMPTY_CLIENT_SETTINGS,
   formValuesToClientConfig,
@@ -1438,13 +1439,22 @@ function App() {
       clientSettingsOpen,
     );
 
+  // Closing without Save discards the dialog's edits: they live in the
+  // dialog's own draft, so nothing reached the debounced persist to flush.
   const onClientSettingsModalClose = useCallback(() => {
-    // Only fires when ClientSettingsModal allows the close (it blocks on an
-    // invalid issuer and reveals the error instead). The implicit "save" is the
-    // flush below; the persist gate drops anything still incomplete.
-    flushClientSettingsDraft();
     setClientSettingsOpen(false);
-  }, [flushClientSettingsDraft]);
+  }, []);
+
+  // Save hands over complete, validated values (the dialog refuses otherwise);
+  // the flush writes them now rather than after the debounce.
+  const onClientSettingsSave = useCallback(
+    (values: ClientSettingsFormValues) => {
+      onClientSettingsChange(values);
+      flushClientSettingsDraft();
+      setClientSettingsOpen(false);
+    },
+    [onClientSettingsChange, flushClientSettingsDraft],
+  );
 
   // Gate the stdio-only Working Directory / Environment Variables controls in
   // the settings modal. Derived from the resolved target server's transport
@@ -2112,7 +2122,7 @@ function App() {
         opened={clientSettingsOpen}
         settings={clientSettingsModalValue}
         onClose={onClientSettingsModalClose}
-        onSettingsChange={onClientSettingsChange}
+        onSave={onClientSettingsSave}
         emaIdpLoginState={emaIdpLoginState}
         onEmaIdpLogout={logoutEmaIdp}
         secretStorage={secretStorage}

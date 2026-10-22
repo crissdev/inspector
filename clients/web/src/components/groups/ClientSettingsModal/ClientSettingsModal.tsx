@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
+import { Button, CloseButton, Group, Modal, ScrollArea } from "@mantine/core";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { SecretStorageFooter } from "../../elements/SecretStorageFooter/SecretStorageFooter";
 import type { SecretStorageInfo } from "@inspector/core/auth/secret-storage-info.js";
@@ -32,15 +32,35 @@ const CenteredModalTitle = Modal.Title.withProps({
   flex: 1,
 });
 
+// Save/Cancel pinned under the scrolling body, above the secret-storage band,
+// so the actions stay in reach however long the form grows.
+const ActionRow = Group.withProps({
+  justify: "flex-end",
+  gap: "sm",
+  px: "md",
+  py: "sm",
+});
+
+const CancelButton = Button.withProps({ variant: "default" });
+
+function sameSettings(
+  a: ClientSettingsFormValues,
+  b: ClientSettingsFormValues,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export interface ClientSettingsModalProps {
   opened: boolean;
+  /** The saved settings; the dialog edits a copy taken when it opens. */
   settings: ClientSettingsFormValues;
+  /**
+   * Close without saving — Cancel, the ✕, Escape and an overlay click all
+   * discard the edits made since the dialog opened.
+   */
   onClose: () => void;
-  onSettingsChange: (
-    settings:
-      | ClientSettingsFormValues
-      | ((prev: ClientSettingsFormValues) => ClientSettingsFormValues),
-  ) => void;
+  /** Persist the edited settings. Only called with complete, valid values. */
+  onSave: (settings: ClientSettingsFormValues) => void;
   emaIdpLoginState?: EmaIdpLoginState;
   onEmaIdpLogout?: () => void;
   /**
@@ -56,7 +76,7 @@ export function ClientSettingsModal({
   opened,
   settings,
   onClose,
-  onSettingsChange,
+  onSave,
   emaIdpLoginState,
   onEmaIdpLogout,
   secretStorage,
@@ -65,6 +85,10 @@ export function ClientSettingsModal({
     ClientSettingsSection[]
   >(["ema"]);
   const [revealErrors, setRevealErrors] = useState(false);
+  // Edits stay local until Save, so closing any other way discards them. Seeded
+  // once: the parent remounts this dialog on every open (its `key`).
+  const [draft, setDraft] = useState(settings);
+  const dirty = !sameSettings(draft, settings);
 
   const allExpanded = expandedSections.length === ALL_SECTIONS.length;
 
@@ -72,19 +96,17 @@ export function ClientSettingsModal({
     setExpandedSections(allExpanded ? [] : ALL_SECTIONS);
   }
 
-  // modal — the parent flushes the debounced persist on close. A client config
-  // that's incomplete (blank required field) or invalid (bad issuer / CIMD URL)
-  // would be silently dropped by the persist gate, so instead of closing we
-  // reveal the field errors (overriding the form's on-blur gating) and keep the
-  // modal open. The user fixes the fields, or disables the feature, then closes.
-  // Resets via the parent's open/close remount key.
-  function handleClose() {
-    const errors = validateClientSettings(settings, { requireComplete: true });
+  // A client config that's incomplete (blank required field) or invalid (bad
+  // issuer / CIMD URL) would be dropped by the persist gate, so Save reveals the
+  // field errors (overriding the form's on-blur gating) and stays open instead
+  // of appearing to succeed. Closing is never blocked: it discards the draft.
+  function handleSave() {
+    const errors = validateClientSettings(draft, { requireComplete: true });
     if (Object.keys(errors).length > 0) {
       setRevealErrors(true);
       return;
     }
-    onClose();
+    onSave(draft);
   }
 
   return (
@@ -93,7 +115,7 @@ export function ClientSettingsModal({
     // kept consistent with ServerSettingsModal for when this grows enough to
     // scroll). The fade-down transition `<Modal>` defaults to (but `Modal.Root`
     // doesn't inherit) is supplied app-wide by `ThemeModalRoot`.
-    <AppModalLg opened={opened} onClose={handleClose}>
+    <AppModalLg opened={opened} onClose={onClose}>
       <Modal.Overlay />
       <Modal.Content>
         <Modal.Header>
@@ -105,20 +127,27 @@ export function ClientSettingsModal({
             />
             {/* `Modal.Title` names the dialog (wires `aria-labelledby`). */}
             <CenteredModalTitle>Client Settings</CenteredModalTitle>
-            <CloseButton aria-label="Close" onClick={handleClose} />
+            <CloseButton aria-label="Close" onClick={onClose} />
           </ModalHeaderRow>
         </Modal.Header>
         <Modal.Body>
           <ClientSettingsForm
-            settings={settings}
+            settings={draft}
             expandedSections={expandedSections}
             onExpandedSectionsChange={setExpandedSections}
-            onSettingsChange={onSettingsChange}
+            // The form reports a value or an updater; `setDraft` takes both.
+            onSettingsChange={setDraft}
             emaIdpLoginState={emaIdpLoginState}
             onEmaIdpLogout={onEmaIdpLogout}
             revealErrors={revealErrors}
           />
         </Modal.Body>
+        <ActionRow>
+          <CancelButton onClick={onClose}>Cancel</CancelButton>
+          <Button onClick={handleSave} disabled={!dirty}>
+            Save
+          </Button>
+        </ActionRow>
         <SecretStorageFooter info={secretStorage} />
       </Modal.Content>
     </AppModalLg>
