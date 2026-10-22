@@ -2,7 +2,7 @@ import { useState } from "react";
 import { noopPagination } from "../../../test/fixtures/pagination";
 import type { ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { ToolControls } from "./ToolControls";
 import { longToolList } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 
@@ -11,11 +11,14 @@ import { longToolList } from "../../screens/ToolsScreen/ToolsScreen.fixtures";
 // the controlled input.
 function StatefulToolControls(args: ComponentProps<typeof ToolControls>) {
   const [searchText, setSearchText] = useState(args.searchText ?? "");
+  const [sortOrder, setSortOrder] = useState(args.sortOrder ?? "server");
   return (
     <ToolControls
       {...args}
       searchText={searchText}
       onSearchChange={setSearchText}
+      sortOrder={sortOrder}
+      onSortOrderChange={setSortOrder}
     />
   );
 }
@@ -28,6 +31,7 @@ const meta: Meta<typeof ToolControls> = {
     onRefreshList: fn(),
     onSelectTool: fn(),
     onSearchChange: fn(),
+    onSortOrderChange: fn(),
     listChanged: false,
   },
   render: (args) => <StatefulToolControls {...args} />,
@@ -73,5 +77,27 @@ export const ListChanged: Story = {
 export const Empty: Story = {
   args: {
     tools: [],
+  },
+};
+
+// The sort button applies A–Z by shown label (title, else name); the button
+// turns filled while the list is in a non-server order.
+export const SortedByName: Story = {
+  args: {
+    tools: longToolList,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Sort tools" }));
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(
+      await body.findByRole("menuitem", { name: "Name (A–Z)" }),
+    );
+    // Picking an order closes the menu; wait for it so the story settles on
+    // the sorted list rather than a dropdown mid-exit.
+    await waitFor(() => expect(body.queryByRole("menu")).toBeNull());
+    await expect(
+      canvas.getByRole("button", { name: "Sort tools" }),
+    ).toBeInTheDocument();
   },
 };

@@ -14,7 +14,7 @@ import {
 } from "../../groups/ToolDetailPanel/ToolDetailPanel";
 import { ToolResponsePanel } from "../../groups/ToolResponsePanel/ToolResponsePanel";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
-import { findToolByRowKey } from "../../../utils/toolUtils";
+import { findToolByRowKey, type ToolSortOrder } from "../../../utils/toolUtils";
 import { executeShortcutLabel } from "../../../utils/toolCallHistory";
 
 export interface ToolCallState {
@@ -82,6 +82,11 @@ export interface ToolsUiState {
    * recent call of the selected tool", which is what a fresh call lands on.
    */
   viewedCallId?: string;
+  /**
+   * Sidebar row order. Optional so an OAuth-resume snapshot written before it
+   * existed restores cleanly; absent reads as `server`.
+   */
+  sortOrder?: ToolSortOrder;
 }
 
 export interface ToolsScreenProps {
@@ -286,6 +291,10 @@ export function ToolsScreen({
             loadError={loadError}
             pagination={pagination}
             onSearchChange={(value) => onUiChange({ ...ui, search: value })}
+            sortOrder={ui.sortOrder}
+            onSortOrderChange={(value) =>
+              onUiChange({ ...ui, sortOrder: value })
+            }
             onSelectTool={handleSelectTool}
           />
         </SidebarCard>

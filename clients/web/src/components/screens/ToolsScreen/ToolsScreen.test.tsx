@@ -213,6 +213,18 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("add", { count: 1 }, false);
   });
 
+  it("threads the sidebar sort order through onUiChange", async () => {
+    const user = userEvent.setup();
+    const onUiChange = vi.fn();
+    renderWithMantine(<ControlledToolsScreen onUiChange={onUiChange} />);
+    await user.click(screen.getByRole("button", { name: "Sort tools" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Name (Z–A)" }),
+    );
+    const last = onUiChange.mock.calls.at(-1)?.[0] as ToolsUiState;
+    expect(last.sortOrder).toBe("name-desc");
+  });
+
   it("filters the sidebar list as the search text changes", async () => {
     const user = userEvent.setup();
     renderWithMantine(<ControlledToolsScreen />);

@@ -5,6 +5,7 @@ import {
   hasInputFields,
   offersRunAsTask,
   resolveDisplayLabel,
+  sortToolRows,
   toolRowKey,
 } from "./toolUtils";
 
@@ -181,5 +182,49 @@ describe("offersRunAsTask", () => {
     // Even a legacy capability carried on a modern connection does not bring
     // the per-call choice back.
     expect(offersRunAsTask("modern", legacyTaskCaps)).toBe(false);
+  });
+});
+
+describe("sortToolRows", () => {
+  const row = (name: string, title?: string) => ({
+    tool: { name, title, inputSchema: { type: "object" as const } },
+  });
+  const labels = (rows: { tool: { name: string; title?: string } }[]) =>
+    rows.map((r) => r.tool.title ?? r.tool.name);
+
+  it("returns the rows untouched in server order", () => {
+    const rows = [row("b"), row("a")];
+    expect(sortToolRows(rows, "server")).toBe(rows);
+  });
+
+  it("sorts by title when present, else name, case- and number-aware", () => {
+    const rows = [
+      row("tool10"),
+      row("zeta", "Alpha"),
+      row("tool2"),
+      row("Beta"),
+    ];
+    expect(labels(sortToolRows(rows, "name-asc"))).toEqual([
+      "Alpha",
+      "Beta",
+      "tool2",
+      "tool10",
+    ]);
+    expect(labels(sortToolRows(rows, "name-desc"))).toEqual([
+      "tool10",
+      "tool2",
+      "Beta",
+      "Alpha",
+    ]);
+  });
+
+  it("does not mutate the input and keeps equal labels in server order", () => {
+    const first = row("same");
+    const second = row("same");
+    const rows = [row("z"), first, second];
+    const sorted = sortToolRows(rows, "name-asc");
+    expect(sorted[0]).toBe(first);
+    expect(sorted[1]).toBe(second);
+    expect(labels(rows)).toEqual(["z", "same", "same"]);
   });
 });

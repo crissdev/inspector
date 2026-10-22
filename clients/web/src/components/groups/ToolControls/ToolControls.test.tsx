@@ -23,6 +23,7 @@ const baseProps = {
   onRefreshList: vi.fn(),
   onSelectTool: vi.fn(),
   onSearchChange: vi.fn(),
+  onSortOrderChange: vi.fn(),
   pagination: noopPagination,
 };
 
@@ -43,6 +44,79 @@ function ControlledToolControls(props: Partial<ToolControlsProps>) {
     />
   );
 }
+
+/** The visible row labels, in on-screen order. */
+function rowLabels(): string[] {
+  return ["List Files", "Query DB", "git_status", "git_commit"]
+    .map((label) => ({ label, el: screen.getByText(label) }))
+    .sort((a, b) =>
+      a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1,
+    )
+    .map(({ label }) => label);
+}
+
+describe("ToolControls sorting", () => {
+  it("keeps the server's order by default", () => {
+    renderWithMantine(<ToolControls {...baseProps} />);
+    expect(rowLabels()).toEqual([
+      "List Files",
+      "Query DB",
+      "git_status",
+      "git_commit",
+    ]);
+  });
+
+  it("sorts by the shown label, ignoring case, A–Z and Z–A", () => {
+    const { rerender } = renderWithMantine(
+      <ToolControls {...baseProps} sortOrder="name-asc" />,
+    );
+    expect(rowLabels()).toEqual([
+      "git_commit",
+      "git_status",
+      "List Files",
+      "Query DB",
+    ]);
+    rerender(<ToolControls {...baseProps} sortOrder="name-desc" />);
+    expect(rowLabels()).toEqual([
+      "Query DB",
+      "List Files",
+      "git_status",
+      "git_commit",
+    ]);
+  });
+
+  it("keeps a sorted row's selection and click key tied to its source row", async () => {
+    const user = userEvent.setup();
+    const onSelectTool = vi.fn();
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        sortOrder="name-asc"
+        onSelectTool={onSelectTool}
+      />,
+    );
+    // `git_commit` is fourth from the server but first on screen; its key is
+    // still stamped from its source position.
+    await user.click(screen.getByText("git_commit"));
+    expect(onSelectTool).toHaveBeenCalledWith("3:git_commit");
+  });
+
+  it("offers the orders from the sort button and reports the pick", async () => {
+    const user = userEvent.setup();
+    const onSortOrderChange = vi.fn();
+    renderWithMantine(
+      <ToolControls {...baseProps} onSortOrderChange={onSortOrderChange} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Sort tools" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Server order (current)" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Name (Z–A)" }));
+    expect(onSortOrderChange).toHaveBeenCalledWith("name-desc");
+  });
+});
 
 describe("ToolControls", () => {
   it("renders the title and search input", () => {

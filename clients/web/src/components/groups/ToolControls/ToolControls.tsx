@@ -23,7 +23,12 @@ import {
 } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
-import { toolRowKey } from "../../../utils/toolUtils";
+import {
+  sortToolRows,
+  toolRowKey,
+  type ToolSortOrder,
+} from "../../../utils/toolUtils";
+import { ToolSortMenu } from "../../elements/ToolSortMenu/ToolSortMenu";
 import { formatCountedLabel, listCountOf } from "../../../utils/listCount";
 
 export interface ToolControlsProps {
@@ -40,6 +45,8 @@ export interface ToolControlsProps {
   // Search text is controlled by the parent (App, via ToolsScreen) so it
   // persists across tab navigation within a live session — see #1417.
   searchText?: string;
+  /** Row order; parent-controlled like the search text. Defaults to `server`. */
+  sortOrder?: ToolSortOrder;
   listChanged: boolean;
   onRefreshList: () => void;
   /**
@@ -56,6 +63,7 @@ export interface ToolControlsProps {
   /** Pagination controls (#1721). */
   pagination: ListPaginationControlsProps;
   onSearchChange: (value: string) => void;
+  onSortOrderChange: (next: ToolSortOrder) => void;
   /** Emits the clicked row's {@link toolRowKey} (see `selectedKey`). */
   onSelectTool: (key: string) => void;
 }
@@ -104,6 +112,12 @@ const ToolsTitle = Title.withProps({
 const SearchInput = TextInput.withProps({
   placeholder: "Search tools...",
   rightSectionPointerEvents: "auto",
+  flex: 1,
+});
+
+const SearchRow = Group.withProps({
+  gap: "xs",
+  wrap: "nowrap",
 });
 
 const SidebarScroll = ScrollArea.withProps({
@@ -141,24 +155,29 @@ export function ToolControls({
   excludedTools = [],
   selectedKey,
   searchText = "",
+  sortOrder = "server",
   listChanged,
   onRefreshList,
   malformedListItems = [],
   loadError,
   pagination,
   onSearchChange,
+  onSortOrderChange,
   onSelectTool,
 }: ToolControlsProps) {
   const viewportRef = useScrollMemory("tools-sidebar");
   const query = searchText.toLowerCase();
-  // Stamp each row's source position before filtering, so the key survives the
-  // list narrowing (#1957).
-  const filteredTools = tools
-    .map((tool, sourceIndex) => ({
-      tool,
-      key: toolRowKey(tool.name, sourceIndex),
-    }))
-    .filter(({ tool }) => !searchText || matchesQuery(tool, query));
+  // Stamp each row's source position before filtering and sorting, so the key
+  // survives the list narrowing (#1957) and reordering alike.
+  const filteredTools = sortToolRows(
+    tools
+      .map((tool, sourceIndex) => ({
+        tool,
+        key: toolRowKey(tool.name, sourceIndex),
+      }))
+      .filter(({ tool }) => !searchText || matchesQuery(tool, query)),
+    sortOrder,
+  );
   // Excluded tools are searchable too, matching name AND title like the main
   // list above, so a filtered view stays consistent.
   const filteredExcluded = excludedTools
@@ -187,13 +206,18 @@ export function ToolControls({
         <ToolsTitle>{title}</ToolsTitle>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
-      <SearchInput
-        value={searchText}
-        onChange={(e) => onSearchChange(e.currentTarget.value)}
-        rightSection={
-          searchText ? <ClearButton onClick={() => onSearchChange("")} /> : null
-        }
-      />
+      <SearchRow>
+        <SearchInput
+          value={searchText}
+          onChange={(e) => onSearchChange(e.currentTarget.value)}
+          rightSection={
+            searchText ? (
+              <ClearButton onClick={() => onSearchChange("")} />
+            ) : null
+          }
+        />
+        <ToolSortMenu value={sortOrder} onChange={onSortOrderChange} />
+      </SearchRow>
       <ListPaginationControls {...pagination} />
       <ListLoadError error={loadError} what="tools" onRetry={onRefreshList} />
       <MalformedItemsWarning

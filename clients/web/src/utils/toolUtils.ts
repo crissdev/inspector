@@ -86,3 +86,39 @@ export function offersRunAsTask(
     protocolEra !== "modern" && !!capabilities?.tasks?.requests?.tools?.call
   );
 }
+
+/**
+ * How the Tools sidebar orders its rows. `server` keeps the order `tools/list`
+ * returned, which is the default because servers often group related tools;
+ * the two name orders sort by the label the row shows (title, else name).
+ */
+export type ToolSortOrder = "server" | "name-asc" | "name-desc";
+
+// Case-insensitive and numeric-aware, so `tool2` sorts before `tool10` and
+// `Echo` sits beside `echo` rather than after every capitalized label.
+const labelCollator = new Intl.Collator(undefined, {
+  sensitivity: "base",
+  numeric: true,
+});
+
+/**
+ * Orders sidebar rows by {@link ToolSortOrder} without mutating the input.
+ * Rows carry their own `tool`, so callers keep any per-row data (such as the
+ * row key stamped from the source index, which must survive reordering).
+ * `Array.prototype.sort` is stable, so equal labels keep their server order.
+ */
+export function sortToolRows<Row extends { tool: Tool }>(
+  rows: Row[],
+  order: ToolSortOrder,
+): Row[] {
+  if (order === "server") return rows;
+  const direction = order === "name-asc" ? 1 : -1;
+  return [...rows].sort(
+    (a, b) =>
+      direction *
+      labelCollator.compare(
+        resolveDisplayLabel(a.tool.name, a.tool.title),
+        resolveDisplayLabel(b.tool.name, b.tool.title),
+      ),
+  );
+}
